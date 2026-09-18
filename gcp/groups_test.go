@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	cloudidentity "google.golang.org/api/cloudidentity/v1"
@@ -14,7 +15,8 @@ import (
 
 // newFakeGroupsServer fakes the two Cloud Identity Groups endpoints Get
 // relies on. lookupStatus is returned for the group lookup; pages is served,
-// one page per call, from the memberships list.
+// one page per call, from the memberships list. A nil page makes the list call
+// fail with a 500 instead.
 func newFakeGroupsServer(t *testing.T, lookupStatus int, pages [][]*cloudidentity.Membership) *httptest.Server {
 	t.Helper()
 
@@ -28,6 +30,10 @@ func newFakeGroupsServer(t *testing.T, lookupStatus int, pages [][]*cloudidentit
 		json.NewEncoder(w).Encode(&cloudidentity.LookupGroupNameResponse{Name: "groups/1"})
 	})
 	mux.HandleFunc("/v1/groups/1/memberships", func(w http.ResponseWriter, r *http.Request) {
+		if pages[pageIdx] == nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		resp := &cloudidentity.ListMembershipsResponse{Memberships: pages[pageIdx]}
 		pageIdx++
 		if pageIdx < len(pages) {
@@ -56,7 +62,7 @@ func TestGroupsClient_Get(t *testing.T) {
 		name        string
 		lookupCode  int
 		pages       [][]*cloudidentity.Membership
-		wantErr     bool
+		wantErr     string // substring of the expected error; empty means success
 		wantMembers []Member
 	}{
 		{
@@ -104,12 +110,27 @@ func TestGroupsClient_Get(t *testing.T) {
 		{
 			name:       "存在しないグループ",
 			lookupCode: http.StatusNotFound,
-			wantErr:    true,
+			wantErr:    "lookup group",
 		},
 		{
 			name:       "権限不足",
 			lookupCode: http.StatusForbidden,
-			wantErr:    true,
+			wantErr:    "lookup group",
+		},
+		{
+			name:       "メンバー一覧の取得が1ページ目で失敗する",
+			lookupCode: http.StatusOK,
+			pages:      [][]*cloudidentity.Membership{nil},
+			wantErr:    "list memberships",
+		},
+		{
+			name:       "メンバー一覧の取得が2ページ目で失敗する",
+			lookupCode: http.StatusOK,
+			pages: [][]*cloudidentity.Membership{
+				{membership("a@example.com", "MEMBER")},
+				nil,
+			},
+			wantErr: "list memberships",
 		},
 	}
 
@@ -122,9 +143,15 @@ func TestGroupsClient_Get(t *testing.T) {
 			}
 
 			got, err := client.Get(context.Background(), "group@example.com")
-			if c.wantErr {
+			if c.wantErr != "" {
 				if err == nil {
 					t.Fatal("Get() = nil error, want error")
+				}
+				if !strings.Contains(err.Error(), c.wantErr) {
+					t.Errorf("Get() error = %q, want it to contain %q", err, c.wantErr)
+				}
+				if got != nil {
+					t.Errorf("Get() = %+v on error, want nil", got)
 				}
 				return
 			}
