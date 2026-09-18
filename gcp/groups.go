@@ -68,7 +68,7 @@ func (c *GroupsClient) Get(ctx context.Context, email string) (*Group, error) {
 	}
 
 	var members []Member
-	err = c.service.Groups.Memberships.List(lookup.Name).Context(ctx).Pages(ctx, func(page *cloudidentity.ListMembershipsResponse) error {
+	err = c.service.Groups.Memberships.List(lookup.Name).Pages(ctx, func(page *cloudidentity.ListMembershipsResponse) error {
 		for _, m := range page.Memberships {
 			members = append(members, Member{
 				Email:  m.PreferredMemberKey.Id,
