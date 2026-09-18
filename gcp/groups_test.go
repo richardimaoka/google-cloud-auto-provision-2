@@ -165,6 +165,26 @@ func TestGroupsClient_Get(t *testing.T) {
 	}
 }
 
+func TestEmailDomain(t *testing.T) {
+	cases := []struct {
+		name  string
+		email string
+		want  string
+	}{
+		{name: "通常のメールアドレス", email: "a@example.com", want: "example.com"},
+		{name: "@がない", email: "nobody", want: ""},
+		{name: "空文字列", email: "", want: ""},
+		{name: "@が複数ある場合は最後の@以降", email: "a@b@example.com", want: "example.com"},
+		{name: "@で終わる", email: "a@", want: ""},
+		{name: "大文字小文字はそのまま", email: "a@Example.COM", want: "Example.COM"},
+	}
+	for _, c := range cases {
+		if got := emailDomain(c.email); got != c.want {
+			t.Errorf("%s: emailDomain(%q) = %q, want %q", c.name, c.email, got, c.want)
+		}
+	}
+}
+
 func TestStrongestRole(t *testing.T) {
 	roles := func(names ...string) []*cloudidentity.MembershipRole {
 		return membership("x@example.com", names...).Roles
