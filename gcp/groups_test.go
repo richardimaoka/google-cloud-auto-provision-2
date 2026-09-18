@@ -1,0 +1,168 @@
+package gcp
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"testing"
+
+	cloudidentity "google.golang.org/api/cloudidentity/v1"
+	"google.golang.org/api/option"
+)
+
+// newFakeGroupsServer fakes the two Cloud Identity Groups endpoints Get
+// relies on. lookupStatus is returned for the group lookup; pages is served,
+// one page per call, from the memberships list.
+func newFakeGroupsServer(t *testing.T, lookupStatus int, pages [][]*cloudidentity.Membership) *httptest.Server {
+	t.Helper()
+
+	pageIdx := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/groups:lookup", func(w http.ResponseWriter, r *http.Request) {
+		if lookupStatus != http.StatusOK {
+			w.WriteHeader(lookupStatus)
+			return
+		}
+		json.NewEncoder(w).Encode(&cloudidentity.LookupGroupNameResponse{Name: "groups/1"})
+	})
+	mux.HandleFunc("/v1/groups/1/memberships", func(w http.ResponseWriter, r *http.Request) {
+		resp := &cloudidentity.ListMembershipsResponse{Memberships: pages[pageIdx]}
+		pageIdx++
+		if pageIdx < len(pages) {
+			resp.NextPageToken = "next"
+		}
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func membership(email, role string) *cloudidentity.Membership {
+	return &cloudidentity.Membership{
+		PreferredMemberKey: &cloudidentity.EntityKey{Id: email},
+		Roles:              []*cloudidentity.MembershipRole{{Name: role}},
+	}
+}
+
+func TestGroupsClient_Get(t *testing.T) {
+	cases := []struct {
+		name        string
+		lookupCode  int
+		pages       [][]*cloudidentity.Membership
+		wantErr     bool
+		wantMembers []Member
+	}{
+		{
+			name:       "メンバー0人のグループ",
+			lookupCode: http.StatusOK,
+			pages:      [][]*cloudidentity.Membership{{}},
+		},
+		{
+			name:       "メンバーが複数かつロールが混在するグループ",
+			lookupCode: http.StatusOK,
+			pages: [][]*cloudidentity.Membership{{
+				membership("owner@example.com", "OWNER"),
+				membership("member@example.com", "MEMBER"),
+			}},
+			wantMembers: []Member{
+				{Email: "owner@example.com", Role: "OWNER", Domain: "example.com"},
+				{Email: "member@example.com", Role: "MEMBER", Domain: "example.com"},
+			},
+		},
+		{
+			name:       "メンバーが複数ページにまたがるグループ",
+			lookupCode: http.StatusOK,
+			pages: [][]*cloudidentity.Membership{
+				{membership("a@example.com", "MEMBER")},
+				{membership("b@example.com", "MEMBER")},
+			},
+			wantMembers: []Member{
+				{Email: "a@example.com", Role: "MEMBER", Domain: "example.com"},
+				{Email: "b@example.com", Role: "MEMBER", Domain: "example.com"},
+			},
+		},
+		{
+			name:       "存在しないグループ",
+			lookupCode: http.StatusNotFound,
+			wantErr:    true,
+		},
+		{
+			name:       "権限不足",
+			lookupCode: http.StatusForbidden,
+			wantErr:    true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := newFakeGroupsServer(t, c.lookupCode, c.pages)
+			client, err := NewGroupsClient(context.Background(), option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+			if err != nil {
+				t.Fatalf("NewGroupsClient: %v", err)
+			}
+
+			got, err := client.Get(context.Background(), "group@example.com")
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("Get() = nil error, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Get() = %v, want nil error", err)
+			}
+			if !reflect.DeepEqual(got.Members, c.wantMembers) {
+				t.Errorf("Get() Members = %+v, want %+v", got.Members, c.wantMembers)
+			}
+		})
+	}
+}
+
+func TestGroup_SameDomain(t *testing.T) {
+	cases := []struct {
+		name    string
+		domain  string
+		members []Member
+		want    bool
+	}{
+		{
+			name:   "メンバーなし",
+			domain: "example.com",
+			want:   true,
+		},
+		{
+			name:    "メンバーのドメインがグループのドメインと一致",
+			domain:  "example.com",
+			members: []Member{{Domain: "example.com"}},
+			want:    true,
+		},
+		{
+			name:   "全メンバーのドメインがグループのドメインと一致",
+			domain: "example.com",
+			members: []Member{
+				{Email: "a@example.com", Domain: "example.com"},
+				{Email: "b@example.com", Domain: "example.com"},
+			},
+			want: true,
+		},
+		{
+			name:   "メンバーのドメインがグループのドメインと異なる",
+			domain: "example.com",
+			members: []Member{
+				{Email: "a@example.com", Domain: "example.com"},
+				{Email: "b@other.com", Domain: "other.com"},
+			},
+			want: false,
+		},
+	}
+	for _, c := range cases {
+		g := &Group{Domain: c.domain, Members: c.members}
+		if got := g.SameDomain(); got != c.want {
+			t.Errorf("%s: SameDomain() = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
