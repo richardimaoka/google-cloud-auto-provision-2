@@ -2,7 +2,10 @@ module github.com/yusni/google-cloud-auto-provision-2
 
 go 1.26.3
 
-require google.golang.org/api v0.298.0
+require (
+	golang.org/x/oauth2 v0.36.0
+	google.golang.org/api v0.298.0
+)
 
 require (
 	cloud.google.com/go/auth v0.23.2 // indirect
@@ -23,7 +26,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
