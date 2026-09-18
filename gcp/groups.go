@@ -16,11 +16,36 @@ type Group struct {
 	Members []Member
 }
 
-// Member represents a Google Group member.
+// Member represents a Google Group member. Role is the strongest of the roles
+// the member holds.
 type Member struct {
 	Email  string
 	Role   string
 	Domain string
+}
+
+// roleRank orders membership roles from weakest to strongest. Roles not listed
+// here rank below every known role.
+var roleRank = map[string]int{
+	"MEMBER":  1,
+	"MANAGER": 2,
+	"OWNER":   3,
+}
+
+// strongestRole returns the name of the strongest role in roles, or "" if there
+// are none. The API doesn't guarantee an order, and owners also carry MEMBER.
+func strongestRole(roles []*cloudidentity.MembershipRole) string {
+	var best string
+	bestRank := -1
+	for _, r := range roles {
+		if r == nil {
+			continue
+		}
+		if rank := roleRank[r.Name]; rank > bestRank {
+			best, bestRank = r.Name, rank
+		}
+	}
+	return best
 }
 
 // GroupsClient is a client for Google Groups.
@@ -45,13 +70,9 @@ func (c *GroupsClient) Get(ctx context.Context, email string) (*Group, error) {
 	var members []Member
 	err = c.service.Groups.Memberships.List(lookup.Name).Context(ctx).Pages(ctx, func(page *cloudidentity.ListMembershipsResponse) error {
 		for _, m := range page.Memberships {
-			var role string
-			if len(m.Roles) > 0 {
-				role = m.Roles[0].Name
-			}
 			members = append(members, Member{
 				Email:  m.PreferredMemberKey.Id,
-				Role:   role,
+				Role:   strongestRole(m.Roles),
 				Domain: emailDomain(m.PreferredMemberKey.Id),
 			})
 		}

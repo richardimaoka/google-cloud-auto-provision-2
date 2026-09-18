@@ -41,11 +41,14 @@ func newFakeGroupsServer(t *testing.T, lookupStatus int, pages [][]*cloudidentit
 	return srv
 }
 
-func membership(email, role string) *cloudidentity.Membership {
-	return &cloudidentity.Membership{
+func membership(email string, roles ...string) *cloudidentity.Membership {
+	m := &cloudidentity.Membership{
 		PreferredMemberKey: &cloudidentity.EntityKey{Id: email},
-		Roles:              []*cloudidentity.MembershipRole{{Name: role}},
 	}
+	for _, r := range roles {
+		m.Roles = append(m.Roles, &cloudidentity.MembershipRole{Name: r})
+	}
+	return m
 }
 
 func TestGroupsClient_Get(t *testing.T) {
@@ -71,6 +74,19 @@ func TestGroupsClient_Get(t *testing.T) {
 			wantMembers: []Member{
 				{Email: "owner@example.com", Role: "OWNER", Domain: "example.com"},
 				{Email: "member@example.com", Role: "MEMBER", Domain: "example.com"},
+			},
+		},
+		{
+			// The API lists an owner's roles as both OWNER and MEMBER.
+			name:       "複数のロールを持つメンバーは最も強いロールになる",
+			lookupCode: http.StatusOK,
+			pages: [][]*cloudidentity.Membership{{
+				membership("owner@example.com", "OWNER", "MEMBER"),
+				membership("manager@example.com", "MEMBER", "MANAGER"),
+			}},
+			wantMembers: []Member{
+				{Email: "owner@example.com", Role: "OWNER", Domain: "example.com"},
+				{Email: "manager@example.com", Role: "MANAGER", Domain: "example.com"},
 			},
 		},
 		{
@@ -119,6 +135,33 @@ func TestGroupsClient_Get(t *testing.T) {
 				t.Errorf("Get() Members = %+v, want %+v", got.Members, c.wantMembers)
 			}
 		})
+	}
+}
+
+func TestStrongestRole(t *testing.T) {
+	roles := func(names ...string) []*cloudidentity.MembershipRole {
+		return membership("x@example.com", names...).Roles
+	}
+
+	cases := []struct {
+		name  string
+		roles []*cloudidentity.MembershipRole
+		want  string
+	}{
+		{name: "ロールなし", roles: nil, want: ""},
+		{name: "MEMBERのみ", roles: roles("MEMBER"), want: "MEMBER"},
+		{name: "OWNERとMEMBER", roles: roles("OWNER", "MEMBER"), want: "OWNER"},
+		{name: "順序が逆でもOWNERが最強", roles: roles("MEMBER", "OWNER"), want: "OWNER"},
+		{name: "MANAGERとMEMBER", roles: roles("MEMBER", "MANAGER"), want: "MANAGER"},
+		{name: "OWNERとMANAGERとMEMBER", roles: roles("MANAGER", "MEMBER", "OWNER"), want: "OWNER"},
+		{name: "未知のロールは既知のロールより弱い", roles: roles("UNKNOWN", "MEMBER"), want: "MEMBER"},
+		{name: "未知のロールのみ", roles: roles("UNKNOWN"), want: "UNKNOWN"},
+		{name: "nilを含む", roles: append(roles("MEMBER"), nil), want: "MEMBER"},
+	}
+	for _, c := range cases {
+		if got := strongestRole(c.roles); got != c.want {
+			t.Errorf("%s: strongestRole() = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 
