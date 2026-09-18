@@ -97,10 +97,11 @@ func emailDomain(email string) string {
 	return email[i+1:]
 }
 
-// SameDomain reports whether all of g's members have g's Domain.
+// SameDomain reports whether all of g's members have g's Domain. Domains are
+// compared case-insensitively.
 func (g *Group) SameDomain() bool {
 	for _, m := range g.Members {
-		if m.Domain != g.Domain {
+		if !strings.EqualFold(m.Domain, g.Domain) {
 			return false
 		}
 	}

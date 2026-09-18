@@ -193,6 +193,18 @@ func TestGroup_SameDomain(t *testing.T) {
 			want: true,
 		},
 		{
+			name:    "メンバーのドメインの大文字小文字だけが異なる",
+			domain:  "example.com",
+			members: []Member{{Email: "a@Example.com", Domain: "Example.com"}},
+			want:    true,
+		},
+		{
+			name:    "グループのドメインの大文字小文字だけが異なる",
+			domain:  "Example.COM",
+			members: []Member{{Email: "a@example.com", Domain: "example.com"}},
+			want:    true,
+		},
+		{
 			name:   "メンバーのドメインがグループのドメインと異なる",
 			domain: "example.com",
 			members: []Member{
