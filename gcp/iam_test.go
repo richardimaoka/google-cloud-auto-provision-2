@@ -11,11 +11,10 @@ import "testing"
 // a response we made up turns into the struct we expect. They cover what a real
 // project can't give us:
 //
-//   - Inputs a real project can't have: folders and organizations, and resource
-//     names that are not valid.
 //   - Failures we can't cause on demand: a conflict on the etag (409), and the
 //     waits between retries.
-//   - Logic that is our own: the read-modify-write loop of UpdatePolicy.
+//   - Logic that is our own: the read-modify-write loop of UpdatePolicy, and its
+//     guard against removing the last owner of a project.
 //   - What the client sends, when a wrong request would damage a real policy: the
 //     policy version, the etag, and the conditions that must go back unchanged.
 //
@@ -23,8 +22,6 @@ import "testing"
 //
 //	POST /v3/projects/<id>:getIamPolicy
 //	POST /v3/projects/<id>:setIamPolicy
-//	POST /v3/folders/<id>:getIamPolicy    (and :setIamPolicy)
-//	POST /v3/organizations/<id>:getIamPolicy    (and :setIamPolicy)
 //
 // It remembers every request (method, path and body), and answers each one from
 // a script for the test case: a policy, or a status. Responses are built from
@@ -37,42 +34,30 @@ import "testing"
 // The client keeps its wait between retries in a field, like pollInterval in
 // ProjectsClient, so a test replaces it and never sleeps.
 //
-// UpdatePolicy(ctx, resource, update func(*Policy) error) error is the name
+// UpdatePolicy(ctx, projectID, update func(*Policy) error) error is the name
 // used here for the read-modify-write operation. The etag is kept inside it, so
 // Policy has no Etag.
 //
+// The guard: a project whose policy has no owner can't be changed by anyone who
+// gets access only through it. So UpdatePolicy refuses a change that leaves a
+// project with no owner, when the policy it read had one. An owner is a member of
+// an unconditional roles/owner binding, and a "deleted:" member is not one, as it
+// grants nothing. The error is ErrLastOwner (a provisional name), found with
+// errors.Is, and nothing is written or retried. A policy that had no owner to
+// begin with, for example because the owners come from the organization, is
+// written as it is.
+//
+// The clients take a project ID, or a number, and do not check it, like
+// ProjectsClient. Only projects are handled: nothing here is for folders or
+// organizations.
+//
 // Every case below is skipped until it is written.
-
-// The resource names, on their own: a table test on the function that checks a
-// name and picks the endpoint, with no server.
-func TestParseIAMResource(t *testing.T) {
-	t.Run("有効なリソース名", func(t *testing.T) {
-		// "projects/<id>", "projects/<number>", "folders/<number>" and
-		// "organizations/<number>".
-		t.Skip("not implemented")
-	})
-	t.Run("無効なリソース名", func(t *testing.T) {
-		// "", "projects/", "projects/a/b", "buckets/x" and "my-project" are an
-		// error.
-		t.Skip("not implemented")
-	})
-}
 
 func TestIAMClient_GetPolicy(t *testing.T) {
 	t.Run("バージョン3を要求する", func(t *testing.T) {
-		// The method is POST, and the body is
-		// {"options":{"requestedPolicyVersion":3}}, so a condition is never left
-		// out. The response can be as small as possible.
-		t.Skip("not implemented")
-	})
-	t.Run("リソースの種類ごとのエンドポイント", func(t *testing.T) {
-		// "projects/<id>", "folders/<id>" and "organizations/<id>" go to their own
-		// endpoints. A real project can't show this for folders and organizations.
-		t.Skip("not implemented")
-	})
-	t.Run("無効なリソース名ならリクエストを送らない", func(t *testing.T) {
-		// The error comes back and the fake has seen no request. The names
-		// themselves are in TestParseIAMResource.
+		// The method is POST, the path is /v3/projects/<id>:getIamPolicy, and the
+		// body is {"options":{"requestedPolicyVersion":3}}, so a condition is never
+		// left out. The response can be as small as possible.
 		t.Skip("not implemented")
 	})
 }
@@ -94,6 +79,32 @@ func TestIAMClient_UpdatePolicy(t *testing.T) {
 	t.Run("update の変更が送られる", func(t *testing.T) {
 		// A binding added, a member removed and a binding removed by update are in
 		// the body. A Condition of the result goes out with its three fields.
+		t.Skip("not implemented")
+	})
+	t.Run("最後の owner を外す変更は、書き込まずにエラーにする", func(t *testing.T) {
+		// The policy read has one owner, and update removes it (or the whole
+		// binding). The error is ErrLastOwner. The fake has seen no setIamPolicy,
+		// update was called once, and nothing is retried.
+		t.Skip("not implemented")
+	})
+	t.Run("owner が複数いて、一部を外す変更は書き込む", func(t *testing.T) {
+		// Two owners, and update removes one. The write goes out.
+		t.Skip("not implemented")
+	})
+	t.Run("owner を別のメンバーに入れ替える変更は書き込む", func(t *testing.T) {
+		// update removes the only owner and adds another in the same call. The
+		// result still has an owner, so the write goes out.
+		t.Skip("not implemented")
+	})
+	t.Run("もともと owner がいないポリシーは、そのまま書き込む", func(t *testing.T) {
+		// The policy read has no owner, and update changes something else. The
+		// guard does not apply, and the write goes out.
+		t.Skip("not implemented")
+	})
+	t.Run("deleted: のメンバーは owner に数えない", func(t *testing.T) {
+		// The only member of roles/owner is "deleted:user:...", and update
+		// removes the other owner: the result has no owner that counts, so it is
+		// ErrLastOwner. To be decided, together with what counts as an owner.
 		t.Skip("not implemented")
 	})
 	t.Run("etag が競合したら読み直して update をやり直す", func(t *testing.T) {
@@ -135,15 +146,6 @@ func TestIAMClient_UpdatePolicy(t *testing.T) {
 	t.Run("変更がなければ書き込まない", func(t *testing.T) {
 		// update leaves the policy as it was, so there is no setIamPolicy. To be
 		// decided: it avoids a write that changes nothing, and the etag with it.
-		t.Skip("not implemented")
-	})
-	t.Run("無効なリソース名ならリクエストを送らない", func(t *testing.T) {
-		// Like GetPolicy, and update is not called.
-		t.Skip("not implemented")
-	})
-	t.Run("リソースの種類ごとのエンドポイント", func(t *testing.T) {
-		// Read and write both go to the endpoints of "folders/<id>" and
-		// "organizations/<id>".
 		t.Skip("not implemented")
 	})
 }

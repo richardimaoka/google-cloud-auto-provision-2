@@ -49,6 +49,12 @@ func TestIAMClient_Policy_Integration(t *testing.T) {
 		// binding from the step before has its condition still.
 		t.Skip("not implemented")
 	})
+	t.Run("最後の owner を外そうとするとエラーで、ポリシーは変わらない", func(t *testing.T) {
+		// UpdatePolicy that removes every roles/owner member returns ErrLastOwner.
+		// GetPolicy afterwards returns the same policy as before, so the guard
+		// stopped the write, and the account can still change the policy.
+		t.Skip("not implemented")
+	})
 	t.Run("存在しないプロジェクトは 403", func(t *testing.T) {
 		// GetPolicy of a project that does not exist returns an error that wraps a
 		// *googleapi.Error with code 403, and says "get iam policy". The API does

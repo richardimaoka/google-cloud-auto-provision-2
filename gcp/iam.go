@@ -37,15 +37,14 @@ type Expr struct {
 	Expression  string
 }
 
-// IAMClient is a client for IAM policies.
+// IAMClient is a client for the IAM policies of projects.
 type IAMClient struct{}
 
 func NewIAMClient(ctx context.Context, opts ...option.ClientOption) (*IAMClient, error) {
 	return nil, nil
 }
 
-// GetPolicy returns the IAM policy of a resource, like "projects/my-project",
-// "folders/123" or "organizations/123".
-func (c *IAMClient) GetPolicy(ctx context.Context, resource string) (*Policy, error) {
+// GetPolicy returns the IAM policy of a project, given its ID or its number.
+func (c *IAMClient) GetPolicy(ctx context.Context, projectID string) (*Policy, error) {
 	return nil, nil
 }
