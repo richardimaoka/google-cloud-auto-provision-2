@@ -1,0 +1,11 @@
+{
+  "name": "projects/123456789012",
+  "parent": "organizations/100000000000",
+  "projectId": "my-project-123",
+  "state": "DELETE_REQUESTED",
+  "displayName": "my-project-123",
+  "createTime": "2026-09-19T15:02:48.006Z",
+  "updateTime": "2026-09-19T15:02:53.918377Z",
+  "deleteTime": "2026-09-19T15:02:53.918377Z",
+  "etag": "W/\"0123456789abcdef\""
+}

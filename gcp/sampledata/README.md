@@ -49,7 +49,7 @@ https://docs.cloud.google.com/resource-manager/reference/rest/v3/operations/get
 
 - [`operations.get.success.create_done.json`](./operations.get.success.create_done.json) (a finished create operation)
 - [`operations.get.success.running.json`](./README.md) (TODO: the operation is not done yet, so `done` is absent)
-- [`operations.get.success.delete_done.json`](./README.md) (TODO: a finished delete operation)
+- [`operations.get.success.delete_done.json`](./operations.get.success.delete_done.json) (a finished delete operation. `response` is the project, now in state DELETE_REQUESTED)
 - [`operations.get.error.json`](./README.md) (TODO: the operation finished with an `error`, for example quota exceeded)
 
 Finished create operations, from creating a project with no parent as callers in different domains. Compare `parent` in `response`:
@@ -67,7 +67,7 @@ https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/get
 
 - [`projects.get.success.with_parent.json`](./projects.get.success.with_parent.json) (an ACTIVE project. `name` is `projects/<project number>`, not the project ID, which is in `projectId`)
 - [`projects.get.success.no_parent.json`](./README.md) (TODO: a project with no parent, so `parent` is absent)
-- [`projects.get.success.delete_requested.json`](./README.md) (TODO: a project after it was deleted, state DELETE_REQUESTED. It is still a normal response)
+- [`projects.get.success.delete_requested.json`](./projects.get.success.delete_requested.json) (a project after it was deleted, state DELETE_REQUESTED, with `deleteTime`. It is still a normal response)
 - [`projects.get.error.invalid_argument.json`](./projects.get.error.invalid_argument.json) (400 INVALID_ARGUMENT, for a malformed project ID)
 - [`projects.get.error.non_existent.json`](./projects.get.error.non_existent.json) (403 PERMISSION_DENIED, for a project ID that does not exist)
 - [`projects.get.error.permission_denied.json`](./projects.get.error.permission_denied.json) (403 PERMISSION_DENIED, for a project owned by someone else)
@@ -84,7 +84,7 @@ https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/delete
 - [`projects.delete.success.json`](./README.md) (TODO: the delete was accepted, and the operation is not done yet)
 - [`projects.delete.error.non_existent.json`](./README.md) (TODO: deleting a project that does not exist. Probably 403 like Get, not confirmed)
 - [`projects.delete.error.permission_denied.json`](./README.md) (TODO: deleting a project owned by someone else)
-- [`projects.delete.error.already_deleted.json`](./README.md) (TODO: deleting a project that is already DELETE_REQUESTED. Not known whether this is an error, rename to success if it is not)
+- [`projects.delete.error.already_deleted.json`](./projects.delete.error.already_deleted.json) (400 FAILED_PRECONDITION "Project not active", when deleting a project that is already DELETE_REQUESTED)
 
 ## To consider: refreshing the samples
 
