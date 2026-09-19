@@ -1,28 +1,19 @@
 package gcp
 
-import "testing"
+import (
+	"context"
+	"net/http/httptest"
+	"testing"
+
+	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
+	"google.golang.org/api/option"
+)
 
 // Unit tests for IAMClient.
 //
 // They cover failures we can't cause on demand (a conflict on the etag), our own
 // logic (the read-modify-write loop and the last-owner guard), and what the client
 // sends (policy version, etag, conditions).
-//
-// They use a fake httptest server, like projects_test.go, that serves
-//
-//	POST /v3/projects/<id>:getIamPolicy
-//	POST /v3/projects/<id>:setIamPolicy
-//
-// It remembers every request (method, path and body), and answers each one from
-// a script for the test case: a policy, or a status. Responses are built from
-// cloudresourcemanager types. The shapes follow the samples in samples/data/,
-// which are only for reference:
-//
-//	projects.getIamPolicy.success.no_condition.json
-//	projects.getIamPolicy.success.with_condition.json
-//
-// The client keeps its wait between retries in a field, like pollInterval in
-// ProjectsClient, so a test replaces it and never sleeps.
 //
 // The clients take a project ID, or a number, and do not check it, like
 // ProjectsClient. Only projects are handled: nothing here is for folders or
@@ -69,6 +60,42 @@ import "testing"
 // because the owners come from the organization, is written as it is.
 //
 // Every case below is skipped until it is written.
+
+// fakeIAMResponse is one scripted answer of the fake server: an error status with
+// an optional body, or status 200 with policy as the body. The policies follow
+// the shapes in samples/data/projects.getIamPolicy.*.json.
+type fakeIAMResponse struct {
+	status int
+	body   string
+	policy *cloudresourcemanager.Policy
+}
+
+// iamRequests records what the fake server received.
+type iamRequests struct {
+	gets []string // bodies of the getIamPolicy requests
+	sets []string // bodies of the setIamPolicy requests
+}
+
+// newFakeIAMServer fakes POST /v3/projects/my-project:getIamPolicy and
+// :setIamPolicy. Each request answers the next entry of gets or of sets.
+func newFakeIAMServer(t *testing.T, gets, sets []fakeIAMResponse) (*httptest.Server, *iamRequests) {
+	t.Helper()
+
+	// TODO
+	return nil, nil
+}
+
+func newTestIAMClient(t *testing.T, endpoint string) *IAMClient {
+	t.Helper()
+
+	client, err := NewIAMClient(context.Background(), option.WithEndpoint(endpoint), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("NewIAMClient: %v", err)
+	}
+	// TODO: shorten the wait between retries, like pollInterval in
+	// newTestProjectsClient.
+	return client
+}
 
 func TestIAMClient_GetPolicy(t *testing.T) {
 	t.Run("バージョン3を要求する", func(t *testing.T) {
