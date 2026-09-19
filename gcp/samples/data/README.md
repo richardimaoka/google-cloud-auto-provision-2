@@ -18,10 +18,19 @@ A recorded response holds real identifiers. `go run ./cmd/anonymize gcp/samples/
 | Organization | `organizations/100000000000`, then `200000000000`, `300000000000` |
 | Project ID (`projectId`, and a violation's `subject`), everywhere it appears | `my-project-123`, then `my-project-456`, `my-project-789` |
 | Number of an operation | `operations/dp.1234567890123456789` and the like |
-| `etag` | `W/"0123456789abcdef"` |
+| `etag` of a project | `W/"0123456789abcdef"` |
+| `etag` of an IAM policy (base64, no `W/`) | `BwAAAAAAAAA=` |
+| Project number in a service account (`service-<n>@…`, `<n>-compute@…`, `<n>@cloudservices…`) | the same placeholder as `projects/<n>` |
+| Project ID in a service account (`<name>@<project ID>.iam.gserviceaccount.com`, `<project ID>@appspot…`) and in `projectOwner:`, `projectEditor:`, `projectViewer:` | `my-project-123` and the like, as above |
+| Name of a service account you made (`<name>@<project ID>.iam…`) | `my-service-account`, then `my-service-account-2`, `my-service-account-3` |
+| `user:` member | `user:alice@example.com`, then `bob@`, `carol@`, `dave@` |
+| `group:` member | `group:group-1@example.com`, then `group-2@`, `group-3@` |
+| `domain:` member | `domain:example.com` |
 | Error ID (base64, holds a request UUID and the resource) | UUID `00000000-0000-0000-0000-000000000000`, and the resource replaced as above |
 
-The same real value gets the same placeholder within a file. Times, and the names of projects that don't exist (`this-does-not-exist-…`), stay as they are. The tool stops, and writes nothing, if an email address that is not `@example.com` is left, or an error ID has a layout it doesn't know.
+A service agent (`service-<n>@<agent>.iam.gserviceaccount.com`) keeps its domain, which belongs to Google. `allUsers` and `allAuthenticatedUsers` stay as they are.
+
+The same real value gets the same placeholder within a file. Times, and the names of projects that don't exist (`this-does-not-exist-…`), stay as they are. The tool stops, and writes nothing, if an email address that is not `@example.com` is left (the service account addresses above are the exception), an error ID has a layout it doesn't know, or an IAM binding has a `condition`, a member such as `deleted:` or `principal://`, or a service account in a form it doesn't know. Replace those by hand.
 
 The groups samples were made by hand: `example.com` addresses, `groups/0123456789abcde`, `customers/C0123abcd`. The tool does not handle them.
 
@@ -111,3 +120,12 @@ The shapes of the API responses may change over time. One way to keep the sample
 This is better as scripts than as part of the integration tests. An integration test that covers every sample would create many real projects, which use up the project quota, and their IDs can never be reused. The integration test (`projects_integration_test.go`) runs only the project lifecycle, once. Scripts could be run whenever needed, and each sample could be refreshed on its own.
 
 Not decided whether to build them.
+
+## Method: projects.getIamPolicy
+
+```
+POST https://cloudresourcemanager.googleapis.com/v3/{resource=projects/*}:getIamPolicy
+https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/getIamPolicy
+```
+
+- [`projects.getIamPolicy.success.json`](./projects.getIamPolicy.success.json) (the policy of a project: `bindings` hold one role with its `members`. Members are service accounts, service agents and a user)

@@ -66,6 +66,14 @@ func TestAnonymize_RestoresSamplesFromRealLookingValues(t *testing.T) {
 		"1234567890123456789", "8882223334445556667",
 		"0123456789abcdef", "deadbeefcafe0123",
 		"my-project-123", "it-test-project-77",
+		// Members of an IAM policy.
+		"service-123456789012", "service-555000111222",
+		"123456789012-compute", "555000111222-compute",
+		"user:alice@example.com", "user:jane.roe@company.test",
+		"user:bob@example.com", "user:joe.bloggs@company.test",
+		"group:group-1@example.com", "group:team@company.test",
+		"my-service-account", "svc-real-name",
+		"BwAAAAAAAAA=", "BwZzzzzzzzz=",
 	)
 	resource := func(res string) (string, error) {
 		return values.Replace(res), nil
@@ -142,6 +150,32 @@ func TestAnonymize_Rules(t *testing.T) {
 			want: `{"error":{"message":"denied on projects/this-does-not-exist-1"}}`,
 		},
 		{
+			name: "IAM ポリシーのメンバーと etag",
+			in: `{"version":1,"etag":"BwZzzzzzzzz=","bindings":[` +
+				`{"role":"roles/owner","members":["user:jane.doe@company.test","group:team@company.test","domain:company.test","allUsers"]},` +
+				`{"role":"roles/editor","members":["serviceAccount:555000111222-compute@developer.gserviceaccount.com",` +
+				`"serviceAccount:svc-a@real-proj-x.iam.gserviceaccount.com",` +
+				`"serviceAccount:service-555000111222@gcp-sa-pubsub.iam.gserviceaccount.com",` +
+				`"serviceAccount:555000111222@cloudservices.gserviceaccount.com",` +
+				`"serviceAccount:real-proj-x@appspot.gserviceaccount.com"]},` +
+				`{"role":"roles/viewer","members":["projectViewer:real-proj-x","user:jane.doe@company.test","user:john@company.test"]}]}`,
+			want: `{"version":1,"etag":"BwAAAAAAAAA=","bindings":[` +
+				`{"role":"roles/owner","members":["user:alice@example.com","group:group-1@example.com","domain:example.com","allUsers"]},` +
+				`{"role":"roles/editor","members":["serviceAccount:123456789012-compute@developer.gserviceaccount.com",` +
+				`"serviceAccount:my-service-account@my-project-123.iam.gserviceaccount.com",` +
+				`"serviceAccount:service-123456789012@gcp-sa-pubsub.iam.gserviceaccount.com",` +
+				`"serviceAccount:123456789012@cloudservices.gserviceaccount.com",` +
+				`"serviceAccount:my-project-123@appspot.gserviceaccount.com"]},` +
+				`{"role":"roles/viewer","members":["projectViewer:my-project-123","user:alice@example.com","user:bob@example.com"]}]}`,
+		},
+		{
+			name: "サービスアカウントのプロジェクト番号は projects/<番号> と同じプレースホルダー",
+			in: `{"name":"projects/555000111222","bindings":[{"role":"roles/editor",` +
+				`"members":["serviceAccount:555000111222-compute@developer.gserviceaccount.com"]}]}`,
+			want: `{"name":"projects/123456789012","bindings":[{"role":"roles/editor",` +
+				`"members":["serviceAccount:123456789012-compute@developer.gserviceaccount.com"]}]}`,
+		},
+		{
 			name: "example.com のメールアドレスは残ってもよい(大文字小文字は問わない)",
 			in:   `{"a":"owner@example.com","b":"member@EXAMPLE.COM"}`,
 			want: `{"a":"owner@example.com","b":"member@EXAMPLE.COM"}`,
@@ -204,6 +238,36 @@ func TestAnonymize_Errors(t *testing.T) {
 		{"example.com で始まるだけのドメイン", `{"user":"dave@example.com.attacker.test"}`, "is left"},
 		{"example.com のサブドメイン", `{"user":"erin@mail.example.com"}`, "is left"},
 		{"別名のドメイン(以前は許していた)", `{"user":"emergency-group@example.com.test-google-a.com"}`, "is left"},
+		{
+			"IAM: 条件付きのバインディング",
+			`{"bindings":[{"role":"roles/viewer","members":["allUsers"],"condition":{"title":"t"}}]}`,
+			"has a condition",
+		},
+		{
+			"IAM: 削除されたメンバー(uid が付く)",
+			`{"bindings":[{"role":"roles/viewer","members":["deleted:user:someone@company.test?uid=123"]}]}`,
+			"a member is in a form this tool doesn't know",
+		},
+		{
+			"IAM: ワークロード ID のメンバー",
+			`{"bindings":[{"role":"roles/viewer","members":["principalSet://iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/*"]}]}`,
+			"a member is in a form this tool doesn't know",
+		},
+		{
+			"IAM: 知らない形のサービスアカウント",
+			`{"bindings":[{"role":"roles/viewer","members":["serviceAccount:someone@other.gserviceaccount.com"]}]}`,
+			"a service account is in a form this tool doesn't know",
+		},
+		{
+			"IAM: メンバー以外の場所にあるサービスアカウントのメールアドレスは残る",
+			`{"note":"svc@real-proj-x.iam.gserviceaccount.com"}`,
+			"is left",
+		},
+		{
+			"IAM: ユーザーのプレースホルダーが足りない",
+			`{"bindings":[{"role":"r","members":["user:a@x.test","user:b@x.test","user:c@x.test","user:d@x.test","user:e@x.test"]}]}`,
+			"distinct user email addresses",
+		},
 		{
 			"プロジェクト番号のプレースホルダーが足りない",
 			`{"a":"projects/111111111111","b":"projects/222222222222","c":"projects/333333333333","d":"projects/444444444444"}`,

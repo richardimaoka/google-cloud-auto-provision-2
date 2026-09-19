@@ -83,11 +83,26 @@ func anonymize(data []byte) ([]byte, error) {
 	}
 	top, _ := doc.(map[string]any)
 	_, isError := top["error"]
+	if err := checkBindings(top); err != nil {
+		return nil, err
+	}
+
+	numbers := newAllocator("project numbers", ownProjectNumbers)
+	if isError {
+		numbers = newAllocator("project numbers", otherProjectNumbers)
+	}
+	orgs := newAllocator("organization numbers", organizationNumbers)
 
 	// Project IDs can't be found by their shape. They are the values of
-	// "projectId", and the "subject" of a violation.
+	// "projectId", the "subject" of a violation, and the project IDs in the
+	// members of an IAM policy.
 	found := map[string]bool{}
 	collectProjectIDs(doc, "", found)
+	text, err := anonymizeMembers(text, numbers, found)
+	if err != nil {
+		return nil, err
+	}
+	text = replaceIAMEtag(text)
 	var ordered []string
 	for id := range found {
 		if strings.Contains(text, id) {
@@ -108,12 +123,6 @@ func anonymize(data []byte) ([]byte, error) {
 		pairs = append(pairs, id, idMap[id])
 	}
 	text = strings.NewReplacer(pairs...).Replace(text)
-
-	numbers := newAllocator("project numbers", ownProjectNumbers)
-	if isError {
-		numbers = newAllocator("project numbers", otherProjectNumbers)
-	}
-	orgs := newAllocator("organization numbers", organizationNumbers)
 
 	resource := func(res string) (string, error) {
 		name, ok := strings.CutPrefix(res, "projects/")
@@ -179,7 +188,8 @@ func anonymize(data []byte) ([]byte, error) {
 	masked.WriteString(text[last:])
 
 	for _, m := range emailRE.FindAllStringSubmatchIndex(masked.String(), -1) {
-		if domain := masked.String()[m[2]:m[3]]; !strings.EqualFold(domain, "example.com") {
+		domain, email := masked.String()[m[2]:m[3]], masked.String()[m[0]:m[1]]
+		if !strings.EqualFold(domain, "example.com") && !isPlaceholderEmail(email) {
 			line := 1 + strings.Count(masked.String()[:m[0]], "\n")
 			return nil, fmt.Errorf("an email address that is not @example.com is left on line %d, replace it by hand", line)
 		}
