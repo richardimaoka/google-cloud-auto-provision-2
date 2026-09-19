@@ -1,6 +1,6 @@
 .env.integration
 .env
-data
+/data
 webapp/testdata/token.json
 
 # Terraform
@@ -12,4 +12,4 @@ terraform/terraform.tfvars
 client_secret.json
 
 # Recorded API responses, before the identifiers are replaced
-scripts/samples/out/
+gcp/samples/scripts/out/

@@ -9,7 +9,7 @@
 #
 # The response is saved to out/<script name>.json. It holds real identifiers, so
 # out/ is git-ignored. Replace them with placeholders before the file goes into
-# gcp/sampledata.
+# gcp/samples/data.
 
 set -euo pipefail
 

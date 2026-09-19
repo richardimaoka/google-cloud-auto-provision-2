@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const sampledataDir = "../../gcp/sampledata"
+const samplesDataDir = "../../gcp/samples/data"
 
 func compact(t *testing.T, data []byte) string {
 	t.Helper()
@@ -24,9 +24,9 @@ func compact(t *testing.T, data []byte) string {
 
 func readSamples(t *testing.T) map[string][]byte {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join(sampledataDir, "*.json"))
+	files, err := filepath.Glob(filepath.Join(samplesDataDir, "*.json"))
 	if err != nil || len(files) == 0 {
-		t.Fatalf("no samples found in %s (err: %v)", sampledataDir, err)
+		t.Fatalf("no samples found in %s (err: %v)", samplesDataDir, err)
 	}
 	samples := map[string][]byte{}
 	for _, f := range files {
@@ -310,7 +310,7 @@ func TestRun_WritesToTheOutputDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := filepath.Join(dir, "sampledata", "projects.get.success.example.json")
+	out := filepath.Join(dir, "data", "projects.get.success.example.json")
 	if err := run(in, out); err != nil {
 		t.Fatal(err)
 	}

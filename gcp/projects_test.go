@@ -56,7 +56,7 @@ func newFakeProjectsServer(t *testing.T, status int, project *cloudresourcemanag
 // ones.
 //
 // The fake builds its responses for each test case. Their shapes follow the
-// samples in sampledata/, which are only for reference.
+// samples in samples/data/, which are only for reference.
 
 func TestProjectsClient_Get(t *testing.T) {
 	cases := []struct {

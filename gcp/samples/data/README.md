@@ -9,7 +9,7 @@ Files marked (TODO) have not been recorded yet.
 
 ## Placeholders
 
-A recorded response holds real identifiers. `go run ./cmd/anonymize scripts/samples/out/<name>.json` replaces them and writes the file here. It replaces:
+A recorded response holds real identifiers. `go run ./cmd/anonymize gcp/samples/scripts/out/<name>.json` replaces them and writes the file here. It replaces:
 
 | Real value | Placeholder |
 |---|---|
