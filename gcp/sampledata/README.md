@@ -1,6 +1,12 @@
 
 Files marked (TODO) have not been recorded yet.
 
+## File names
+
+`<method>.success.json` or `<method>.error.json`. A method with more than one file of a kind adds a case name to that kind: `<method>.success.<case>.json`, `<method>.error.<case>.json`. Successes and errors are counted separately.
+
+`success` is a normal response. `error` is an error response, or an operation that finished with an `error`.
+
 ## Method: groups.get
 
 ```
@@ -8,7 +14,7 @@ GET https://cloudidentity.googleapis.com/v1/{name=groups/*}
 https://docs.cloud.google.com/identity/docs/reference/rest/v1/groups/get
 ```
 
-- [`groups.get.json`](./groups.get.json)
+- [`groups.get.success.json`](./groups.get.success.json)
 
 ## Method: groups.memberships.list
 
@@ -17,7 +23,7 @@ GET https://cloudidentity.googleapis.com/v1/{parent=groups/*}/memberships
 https://docs.cloud.google.com/identity/docs/reference/rest/v1/groups.memberships/list
 ```
 
-- [`groups.memberships.list.json`](./groups.memberships.list.json)
+- [`groups.memberships.list.success.json`](./groups.memberships.list.success.json)
 
 ## Method: projects.create
 
@@ -27,9 +33,9 @@ https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/create
 ```
 
 - [`projects.create.success.json`](./projects.create.success.json) (the create request was accepted, and the operation is not done yet)
-- [`projects.create.already_exists.json`](./projects.create.already_exists.json) (409 ALREADY_EXISTS, when the project ID is already taken)
-- [`projects.create.invalid_argument.json`](./README.md) (TODO: 400 INVALID_ARGUMENT, for a malformed project ID or a restricted word such as "google")
-- [`projects.create.permission_denied.json`](./README.md) (TODO: 403 PERMISSION_DENIED, when the caller is not allowed to create projects)
+- [`projects.create.error.already_exists.json`](./projects.create.error.already_exists.json) (409 ALREADY_EXISTS, when the project ID is already taken)
+- [`projects.create.error.invalid_argument.json`](./README.md) (TODO: 400 INVALID_ARGUMENT, for a malformed project ID or a restricted word such as "google")
+- [`projects.create.error.permission_denied.json`](./README.md) (TODO: 403 PERMISSION_DENIED, when the caller is not allowed to create projects)
 
 Where a project lands depends on who creates it, because Create sends no parent.
 See the operations.get files named caller_*.
@@ -41,16 +47,16 @@ GET https://cloudresourcemanager.googleapis.com/v3/{name=operations/**}
 https://docs.cloud.google.com/resource-manager/reference/rest/v3/operations/get
 ```
 
-- [`operations.get.json`](./operations.get.json)
-- [`operations.get.running.json`](./README.md) (TODO: the operation is not done yet, so `done` is absent)
-- [`operations.get.failed.json`](./README.md) (TODO: the operation finished with an `error`, for example quota exceeded)
-- [`operations.get.delete_done.json`](./README.md) (TODO: a finished delete operation)
+- [`operations.get.success.create_done.json`](./operations.get.success.create_done.json) (a finished create operation)
+- [`operations.get.success.running.json`](./README.md) (TODO: the operation is not done yet, so `done` is absent)
+- [`operations.get.success.delete_done.json`](./README.md) (TODO: a finished delete operation)
+- [`operations.get.error.json`](./README.md) (TODO: the operation finished with an `error`, for example quota exceeded)
 
 Finished create operations, from creating a project with no parent as callers in different domains. Compare `parent` in `response`:
 
-- [`operations.get.caller_mydomain_com.json`](./README.md) (TODO: caller @mydomain.com, whose domain has an organization)
-- [`operations.get.caller_google_com.json`](./README.md) (TODO: caller @google.com, a different organization)
-- [`operations.get.caller_no_organization.json`](./README.md) (TODO: a caller whose domain has no organization, so `response` should have no `parent`)
+- [`operations.get.success.caller_mydomain_com.json`](./README.md) (TODO: caller @mydomain.com, whose domain has an organization)
+- [`operations.get.success.caller_google_com.json`](./README.md) (TODO: caller @google.com, a different organization)
+- [`operations.get.success.caller_no_organization.json`](./README.md) (TODO: a caller whose domain has no organization, so `response` should have no `parent`)
 
 ## Method: projects.get
 
@@ -59,12 +65,12 @@ GET https://cloudresourcemanager.googleapis.com/v3/{name=projects/*}
 https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/get
 ```
 
-- [`projects.get.success.json`](./projects.get.success.json) (an ACTIVE project. `name` is `projects/<project number>`, not the project ID, which is in `projectId`)
-- [`projects.get.no_parent.json`](./README.md) (TODO: a project with no parent, so `parent` is absent)
-- [`projects.get.delete_requested.json`](./README.md) (TODO: a project after it was deleted, state DELETE_REQUESTED)
-- [`projects.get.invalid_argument.json`](./projects.get.invalid_argument.json) (400 INVALID_ARGUMENT, for a malformed project ID)
-- [`projects.get.non_existent.json`](./projects.get.non_existent.json) (403 PERMISSION_DENIED, for a project ID that does not exist)
-- [`projects.get.permission_denied.json`](./projects.get.permission_denied.json) (403 PERMISSION_DENIED, for a project owned by someone else)
+- [`projects.get.success.with_parent.json`](./projects.get.success.with_parent.json) (an ACTIVE project. `name` is `projects/<project number>`, not the project ID, which is in `projectId`)
+- [`projects.get.success.no_parent.json`](./README.md) (TODO: a project with no parent, so `parent` is absent)
+- [`projects.get.success.delete_requested.json`](./README.md) (TODO: a project after it was deleted, state DELETE_REQUESTED. It is still a normal response)
+- [`projects.get.error.invalid_argument.json`](./projects.get.error.invalid_argument.json) (400 INVALID_ARGUMENT, for a malformed project ID)
+- [`projects.get.error.non_existent.json`](./projects.get.error.non_existent.json) (403 PERMISSION_DENIED, for a project ID that does not exist)
+- [`projects.get.error.permission_denied.json`](./projects.get.error.permission_denied.json) (403 PERMISSION_DENIED, for a project owned by someone else)
 
 A project that does not exist returns 403, not 404. The API does not tell "not allowed" from "does not exist": both are the same 403 PERMISSION_DENIED, and the message says "(or it may not exist)". Only the resource and the error ID differ between non_existent and permission_denied.
 
@@ -76,9 +82,9 @@ https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/delete
 ```
 
 - [`projects.delete.success.json`](./README.md) (TODO: the delete was accepted, and the operation is not done yet)
-- [`projects.delete.non_existent.json`](./README.md) (TODO: deleting a project that does not exist. Probably 403 like Get, not confirmed)
-- [`projects.delete.permission_denied.json`](./README.md) (TODO: deleting a project owned by someone else)
-- [`projects.delete.already_deleted.json`](./README.md) (TODO: deleting a project that is already DELETE_REQUESTED)
+- [`projects.delete.error.non_existent.json`](./README.md) (TODO: deleting a project that does not exist. Probably 403 like Get, not confirmed)
+- [`projects.delete.error.permission_denied.json`](./README.md) (TODO: deleting a project owned by someone else)
+- [`projects.delete.error.already_deleted.json`](./README.md) (TODO: deleting a project that is already DELETE_REQUESTED. Not known whether this is an error, rename to success if it is not)
 
 ## To consider: refreshing the samples
 
