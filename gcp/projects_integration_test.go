@@ -7,10 +7,11 @@ package gcp
 // quota, and one project ID for good, because the ID of a deleted project can't
 // be reused. So it asks for confirmation on the terminal first, and fails if
 // there is no answer within 2 minutes. Pass -force to skip the question, for
-// CI:
+// CI. Load the variables from .env.integration for one run, as described in
+// groups_integration_test.go:
 //
-//	go test -tags integration -count=1 -v ./gcp -run Lifecycle
-//	go test -tags integration -count=1 -v ./gcp -run Lifecycle -force
+//	set -a; . ./.env.integration; set +a; go test -tags integration -count=1 -v ./gcp -run Lifecycle
+//	set -a; . ./.env.integration; set +a; go test -tags integration -count=1 -v ./gcp -run Lifecycle -force
 //
 // -count=1 stops go test from replaying a cached result instead of running it
 // again.
