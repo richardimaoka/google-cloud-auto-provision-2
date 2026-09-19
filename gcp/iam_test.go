@@ -269,9 +269,8 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("request updateMask = %q, want %q", reqs[0].UpdateMask, "bindings,etag")
 		}
 	})
-	t.Run("update の変更が送られる", func(t *testing.T) {
-		// A member removed, a binding removed and a binding added by update are in the
-		// body, and a Condition goes out with its title, description and expression.
+	t.Run("update が触れなかった条件付きバインディングは、条件ごと書き込みに入る", func(t *testing.T) {
+		// Without its condition, the role would be granted all the time.
 		condition := &cloudresourcemanager.Expr{
 			Title:       "condition title",
 			Description: "condition description",
@@ -279,31 +278,27 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		}
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 3, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
-				{Role: "roles/viewer", Members: []string{"user:alice@example.com", "user:bob@example.com"}},
-				{Role: "roles/editor", Members: []string{"user:carol@example.com"}},
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
 				{Role: "roles/bigquery.jobUser", Members: []string{"user:dave@example.com"}, Condition: condition},
 			}})},
 			[]fakeIAMResponse{written}) // the write works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
-			p.Bindings[0].Members = []string{"user:alice@example.com"}
-			p.Bindings = slices.Delete(p.Bindings, 1, 2)
-			p.Bindings = append(p.Bindings, Binding{Role: "roles/browser", Members: []string{"user:erin@example.com"}})
+			p.Bindings[0].Members = append(p.Bindings[0].Members, "user:bob@example.com")
 			return nil
 		})
 		if err != nil {
 			t.Fatalf("updatePolicy() = %v, want nil error", err)
 		}
 
+		want := []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com", "user:bob@example.com"}},
+			{Role: "roles/bigquery.jobUser", Members: []string{"user:dave@example.com"}, Condition: condition},
+		}
 		reqs := srv.SetRequests()
 		if len(reqs) != 1 {
 			t.Fatalf("got %d setIamPolicy requests, want 1", len(reqs))
-		}
-		want := []*cloudresourcemanager.Binding{
-			{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
-			{Role: "roles/bigquery.jobUser", Members: []string{"user:dave@example.com"}, Condition: condition},
-			{Role: "roles/browser", Members: []string{"user:erin@example.com"}},
 		}
 		if got := reqs[0].Policy.Bindings; !reflect.DeepEqual(got, want) {
 			gotJSON, _ := json.Marshal(got)

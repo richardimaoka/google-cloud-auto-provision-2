@@ -39,6 +39,11 @@ func TestIAMClient_Policy_Integration(t *testing.T) {
 		// the API's and back.
 		t.Skip("not implemented")
 	})
+	t.Run("メンバーを外して読み戻せる", func(t *testing.T) {
+		// RemoveBinding takes one member from a role that has two, and GetPolicy no
+		// longer lists it. Taking the last member of a role removes the binding.
+		t.Skip("not implemented")
+	})
 	t.Run("同じものをもう一度足しても、ポリシーは変わらない", func(t *testing.T) {
 		// AddBinding of a role and a member that are there returns no error, and the
 		// policy GetPolicy returns is the same, member by member.
