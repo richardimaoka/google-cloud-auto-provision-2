@@ -7,9 +7,10 @@ package gcp
 //
 //	go test -tags integration ./gcp
 //
-// Put the variables below in .env.integration and load it for one run with:
+// Put the variables below in .env.integration and load it for one run with a
+// subshell, so the variables are gone from your shell afterwards:
 //
-//	set -a; . ./.env.integration; set +a; go test -tags integration ./gcp
+//	(set -a; . ./.env.integration; set +a; go test -tags integration ./gcp)
 //
 // Credentials come from Application Default Credentials. The tests refuse to
 // run unless the project recorded in ADC matches GCP_TEST_QUOTA_PROJECT, so a
