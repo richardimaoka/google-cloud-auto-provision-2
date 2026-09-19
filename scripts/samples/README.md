@@ -6,17 +6,24 @@ One script per sample in `gcp/sampledata`. Each script shows the `curl` request,
 
 ## Usage
 
-Log in with the account you want to call as, then run a script:
+Log in once with each account you want to call as, then run a script and answer the questions:
 
 ```sh
 gcloud auth login            # once per account, see: gcloud auth list
-ACCOUNT=me@example.com QUOTA_PROJECT=my-quota-project \
-  ./projects.get.error.non_existent.sh
+./projects.get.error.non_existent.sh
 ```
 
-- `ACCOUNT` is a gcloud account. The script says who it calls as, so the response can be tied to that account.
-- `QUOTA_PROJECT` is the project the API calls are counted against. It is sent as `x-goog-user-project`.
-- Scripts that need a project or an operation take it from a variable, named in the script. `PROJECT` is a project number or ID.
+- **Who to call as.** The first run shows a menu of the logged-in accounts (`gcloud auth list`), then of the projects that account can see (`gcloud projects list`). The chosen pair is remembered in `out/.recent`, so the next run offers it as number 1. The last 10 pairs are kept.
+- **Quota project.** The project the API calls are counted against. It is sent as `x-goog-user-project`. If it is not in the list, choose "a project ID that is not listed" and type it.
+- **Other values.** A script that needs a project or an operation asks for it, so it can be pasted: a project number or ID for `PROJECT`, or `operations/dp.…` for `OPERATION`. An answer that does not look right stops the script.
+- **Without a menu.** Set `ACCOUNT`, `QUOTA_PROJECT` and the script's own variable (`PROJECT`, `EXISTING_PROJECT_ID`, `OPERATION`) and nothing is asked, so a script also runs where there is no terminal:
+
+  ```sh
+  ACCOUNT=me@example.com QUOTA_PROJECT=my-quota-project PROJECT=123456789012 \
+    ./projects.get.success.with_parent.sh
+  ```
+
+The script says who it calls as, so the response can be tied to that account.
 
 ## Scripts
 

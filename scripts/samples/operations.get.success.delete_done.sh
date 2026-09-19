@@ -2,7 +2,7 @@
 # Get a finished delete operation. OPERATION is its name, like operations/dp.123.
 # Operations are deleted a few hours after they finish.
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-: "${OPERATION:?set OPERATION to the name of a delete operation, like operations/dp.123}"
+ask OPERATION "Paste the operation name, like operations/dp.123" '^operations/[A-Za-z0-9_.-]+$'
 
 curl -sS -X GET \
   -H "Authorization: Bearer ${TOKEN}" \

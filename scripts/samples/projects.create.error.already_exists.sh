@@ -2,7 +2,7 @@
 # Create a project with the ID of a project that exists already, so the request
 # is rejected with 409 and nothing is created. EXISTING_PROJECT_ID is that ID.
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-: "${EXISTING_PROJECT_ID:?set EXISTING_PROJECT_ID to the ID of a project that exists}"
+ask EXISTING_PROJECT_ID "ID of a project that exists" '^[a-z][a-z0-9-]{4,29}$'
 
 curl -sS -X POST \
   -H "Authorization: Bearer ${TOKEN}" \

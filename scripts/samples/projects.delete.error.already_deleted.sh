@@ -3,7 +3,7 @@
 # It reads the project first and stops unless it is DELETE_REQUESTED, so this
 # can never delete a project that is still ACTIVE.
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
-: "${PROJECT:?set PROJECT to the number or ID of a project that is already deleted}"
+ask PROJECT "Number or ID of a project that is already deleted" '^([0-9]+|[a-z][a-z0-9-]{4,29})$'
 
 STATE_RESPONSE="$(curl -sS -X GET \
   -H "Authorization: Bearer ${TOKEN}" \
