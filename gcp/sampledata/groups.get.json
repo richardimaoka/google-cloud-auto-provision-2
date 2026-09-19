@@ -1,0 +1,21 @@
+{
+  "name": "groups/0123456789abcde",
+  "groupKey": {
+    "id": "emergency-group@example.com"
+  },
+  "additionalGroupKeys": [
+    {
+      "id": "emergency-group@example.com"
+    },
+    {
+      "id": "emergency-group@example.com.test-google-a.com"
+    }
+  ],
+  "parent": "customers/C0123abcd",
+  "displayName": "emergency-group",
+  "createTime": "2026-09-18T21:49:31.832125Z",
+  "updateTime": "2026-09-18T21:49:32.271609Z",
+  "labels": {
+    "cloudidentity.googleapis.com/groups.discussion_forum": ""
+  }
+}

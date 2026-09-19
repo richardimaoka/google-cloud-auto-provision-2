@@ -1,0 +1,29 @@
+{
+  "memberships": [
+    {
+      "name": "groups/0123456789abcde/memberships/100000000000000000001",
+      "preferredMemberKey": {
+        "id": "owner@example.com"
+      },
+      "roles": [
+        {
+          "name": "OWNER"
+        },
+        {
+          "name": "MEMBER"
+        }
+      ]
+    },
+    {
+      "name": "groups/0123456789abcde/memberships/100000000000000000002",
+      "preferredMemberKey": {
+        "id": "member@example.com"
+      },
+      "roles": [
+        {
+          "name": "MEMBER"
+        }
+      ]
+    }
+  ]
+}
