@@ -206,13 +206,15 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 	ok := func(p *cloudresourcemanager.Policy) fakeIAMResponse {
 		return fakeIAMResponse{status: http.StatusOK, policy: p}
 	}
+	// Fake answer: the write worked. Its content is ignored.
+	written := ok(&cloudresourcemanager.Policy{})
 
-	t.Run("読んだ etag とバージョン3を書き込みに付ける", func(t *testing.T) {
-		// The setIamPolicy body has the etag that getIamPolicy returned, and
-		// version 3, whatever version was read.
+	t.Run("書き込みには、読んだときの etag が付く", func(t *testing.T) {
+		// Without it, the API can't tell that someone else changed the policy after
+		// we read it, and the write would overwrite that change.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
-			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{written}) // the write works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
@@ -223,8 +225,29 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		if len(reqs) != 1 {
 			t.Fatalf("got %d setIamPolicy requests, want 1", len(reqs))
 		}
-		if p := reqs[0].Policy; p == nil || p.Etag != "etag-1" || p.Version != 3 {
-			t.Errorf("request policy = %+v, want etag %q and version 3", p, "etag-1")
+		if p := reqs[0].Policy; p == nil || p.Etag != "etag-1" {
+			t.Errorf("request policy = %+v, want etag %q", p, "etag-1")
+		}
+	})
+	t.Run("書き込みは、読んだ version に関わらず version 3 になる", func(t *testing.T) {
+		// Google answers with version 1 for a policy that has no conditional binding,
+		// even though we asked for version 3, so the version read says nothing about
+		// the version to write with. A write with a lower version drops conditions.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
+			[]fakeIAMResponse{written}) // the write works (answer ignored)
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+
+		reqs := srv.SetRequests()
+		if len(reqs) != 1 {
+			t.Fatalf("got %d setIamPolicy requests, want 1", len(reqs))
+		}
+		if p := reqs[0].Policy; p == nil || p.Version != 3 {
+			t.Errorf("request policy = %+v, want version 3", p)
 		}
 	})
 	t.Run("書き込みは bindings と etag だけに限る", func(t *testing.T) {
@@ -232,7 +255,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		// fields could remove them from the project.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
-			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{written}) // the write works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
@@ -261,7 +284,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 				{Role: "roles/editor", Members: []string{"user:carol@example.com"}},
 				{Role: "roles/bigquery.jobUser", Members: []string{"user:dave@example.com"}, Condition: condition},
 			}})},
-			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{written}) // the write works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -317,7 +340,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
 				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
 			}})},
-			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{written}) // the write works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -377,7 +400,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		// Two owners, and update removes one. The write goes out.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ownerRead("user:alice@example.com", "user:bob@example.com")},
-			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{written}) // the write works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -396,7 +419,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		// result still has an owner, so the write goes out.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ownerRead("user:alice@example.com")},
-			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{written}) // the write works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -415,7 +438,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		// guard does not apply, and the write goes out.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
-			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{written}) // the write works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
@@ -461,7 +484,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		// on the second policy.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com"), viewerRead("etag-2", "user:alice@example.com", "user:bob@example.com")},
-			[]fakeIAMResponse{conflict, ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{conflict, written}) // the first write conflicts, then one works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 
 		var viewersSeen []int
@@ -520,7 +543,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		// for being slow.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com"), viewerRead("etag-2", "user:alice@example.com"), viewerRead("etag-3", "user:alice@example.com")},
-			[]fakeIAMResponse{conflict, conflict, ok(&cloudresourcemanager.Policy{})})
+			[]fakeIAMResponse{conflict, conflict, written}) // two writes conflict, then one works (answer ignored)
 		client := newTestIAMClient(t, srv.URL)
 		client.retryWait = 30 * time.Millisecond
 
