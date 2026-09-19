@@ -194,10 +194,54 @@ func TestIAMClient_RemoveBinding(t *testing.T) {
 }
 
 func TestIAMClient_updatePolicy(t *testing.T) {
+	// addViewer changes the policy, so that updatePolicy has something to write.
+	addViewer := func(p *Policy) error {
+		p.Bindings = append(p.Bindings, Binding{Role: "roles/viewer", Members: []string{"user:alice@example.com"}})
+		return nil
+	}
+	ok := func(p *cloudresourcemanager.Policy) fakeIAMResponse {
+		return fakeIAMResponse{status: http.StatusOK, policy: p}
+	}
+
 	t.Run("読んだ etag とバージョン3を書き込みに付ける", func(t *testing.T) {
 		// The setIamPolicy body has the etag that getIamPolicy returned, and
 		// version 3, whatever version was read.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+
+		reqs := srv.SetRequests()
+		if len(reqs) != 1 {
+			t.Fatalf("got %d setIamPolicy requests, want 1", len(reqs))
+		}
+		if p := reqs[0].Policy; p == nil || p.Etag != "etag-1" || p.Version != 3 {
+			t.Errorf("request policy = %+v, want etag %q and version 3", p, "etag-1")
+		}
+	})
+	t.Run("書き込みは bindings と etag だけに限る", func(t *testing.T) {
+		// A Policy does not hold the audit configs, so a write that did not name its
+		// fields could remove them from the project.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+
+		reqs := srv.SetRequests()
+		if len(reqs) != 1 {
+			t.Fatalf("got %d setIamPolicy requests, want 1", len(reqs))
+		}
+		if reqs[0].UpdateMask != "bindings,etag" {
+			t.Errorf("request updateMask = %q, want %q", reqs[0].UpdateMask, "bindings,etag")
+		}
 	})
 	t.Run("update の変更が送られる", func(t *testing.T) {
 		// A binding added, a member removed and a binding removed by update are in

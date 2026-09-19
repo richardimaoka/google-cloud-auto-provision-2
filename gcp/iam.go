@@ -87,17 +87,44 @@ func policyFromAPI(p *cloudresourcemanager.Policy) *Policy {
 	return policy
 }
 
+// policyToAPI turns a Policy back into the API's, to be written with the etag it
+// was read with, and with the version that has conditions.
+func policyToAPI(p *Policy, etag string) *cloudresourcemanager.Policy {
+	policy := &cloudresourcemanager.Policy{Version: policyVersion, Etag: etag}
+	for _, b := range p.Bindings {
+		binding := &cloudresourcemanager.Binding{Role: b.Role, Members: b.Members}
+		if b.Condition != nil {
+			binding.Condition = &cloudresourcemanager.Expr{
+				Title:       b.Condition.Title,
+				Description: b.Condition.Description,
+				Expression:  b.Condition.Expression,
+			}
+		}
+		policy.Bindings = append(policy.Bindings, binding)
+	}
+	return policy
+}
+
 // GetPolicy returns the IAM policy of a project, given its ID or its number. It
 // asks for policy version 3, so a condition is never left out.
 func (c *IAMClient) GetPolicy(ctx context.Context, projectID string) (*Policy, error) {
+	p, err := c.getPolicy(ctx, "projects/"+projectID)
+	if err != nil {
+		return nil, err
+	}
+	return policyFromAPI(p), nil
+}
+
+// getPolicy reads the policy as the API has it, with its etag.
+func (c *IAMClient) getPolicy(ctx context.Context, resource string) (*cloudresourcemanager.Policy, error) {
 	req := &cloudresourcemanager.GetIamPolicyRequest{
 		Options: &cloudresourcemanager.GetPolicyOptions{RequestedPolicyVersion: policyVersion},
 	}
-	p, err := c.service.Projects.GetIamPolicy("projects/"+projectID, req).Context(ctx).Do()
+	p, err := c.service.Projects.GetIamPolicy(resource, req).Context(ctx).Do()
 	if err != nil {
 		return nil, fmt.Errorf("get iam policy: %w", err)
 	}
-	return policyFromAPI(p), nil
+	return p, nil
 }
 
 // AddBinding grants role to member on a project, like gcloud's
@@ -129,5 +156,25 @@ func (c *IAMClient) RemoveBinding(ctx context.Context, projectID, role, member s
 // one, as it grants nothing. A policy that had no owner to begin with, for example
 // because the owners come from the organization, is written as it is.
 func (c *IAMClient) updatePolicy(ctx context.Context, projectID string, update func(*Policy) error) error {
+	resource := "projects/" + projectID
+
+	current, err := c.getPolicy(ctx, resource)
+	if err != nil {
+		return err
+	}
+	policy := policyFromAPI(current)
+	if err := update(policy); err != nil {
+		return err
+	}
+
+	// A Policy does not hold everything the API's has, like the audit configs, so
+	// only the bindings and the etag are written.
+	req := &cloudresourcemanager.SetIamPolicyRequest{
+		Policy:     policyToAPI(policy, current.Etag),
+		UpdateMask: "bindings,etag",
+	}
+	if _, err := c.service.Projects.SetIamPolicy(resource, req).Context(ctx).Do(); err != nil {
+		return fmt.Errorf("set iam policy: %w", err)
+	}
 	return nil
 }
