@@ -11,6 +11,13 @@ import "testing"
 //
 // Create and Delete block until their operation is done, so the fake needs to
 // be able to report "not done" for a few polls before "done".
+//
+// The client holds its project ID generator (nextProjectID) in a field, so the
+// Create tests can replace it with a scripted sequence of IDs instead of random
+// ones.
+//
+// The fake builds its responses for each test case. Their shapes follow the
+// samples in sampledata/, which are only for reference.
 
 func TestProjectsClient_Get(t *testing.T) {
 	t.Skip("not implemented")
@@ -25,32 +32,44 @@ func TestProjectsClient_Get(t *testing.T) {
 func TestProjectsClient_Create(t *testing.T) {
 	t.Skip("not implemented")
 
-	// - リクエストボディの displayName が name と一致し、projectId が name から
-	//   生成されたものになる
+	// - 最初の試行: リクエストの projectId が name そのもの、displayName も name
 	// - クライアントの parent がリクエストの parent に入る
 	// - クライアントの parent が空のときは parent がリクエストに含まれない
-	// - オペレーションが最初のレスポンスで完了している: プロジェクトが返る
+	// - 作成が受理され(未完了のオペレーションが返る)、最初のポーリングで完了する:
+	//   response の Project が返る
 	// - オペレーションが数回のポーリング後に完了する: ポーリングが繰り返される
-	// - オペレーションがエラーで完了する(クォータ超過など): メッセージを含むエラー
+	//
+	// ID の衝突とリトライ(衝突は作成リクエストに対して即座に 409 で返る):
+	// - 最初の試行が 409 ALREADY_EXISTS で衝突: 接尾辞付きの ID で再試行し、
+	//   2回目で成功したプロジェクトが返る
+	// - 2回衝突してから成功する: 3回目の試行で成功し、ID は毎回異なる
+	// - 6回すべて衝突: 作成リクエストはちょうど6回で、最後の衝突のエラーを返す
+	// - 再試行中に衝突以外の失敗(403 など): それ以上試行せずそのエラーを返す
+	// - name が長すぎて接尾辞が入らない(29〜30文字): 最初の試行が衝突したら
+	//   リトライせず、作成リクエストは1回だけでエラーを返す
+	// - name が28文字: 接尾辞が1桁に短縮された ID で再試行する
+	//
+	// その他の失敗:
 	// - 作成リクエスト自体が拒否される(403 など): "create project" を含むエラー
+	// - オペレーションが衝突以外のエラーで完了する(クォータ超過など): メッセージを含むエラー
 	// - ポーリング中に 500: ハングせずエラーを返す
-	// - (未決定) ID が既に存在する(ALREADY_EXISTS): 新しい ID で数回リトライする
 	// - (未決定) ポーリング中に context がキャンセルされる: 待機を止めてエラーを返す
 }
 
-func TestGenerateProjectID(t *testing.T) {
+func TestNextProjectID(t *testing.T) {
 	t.Skip("not implemented")
 
-	// どの入力でも次を満たす: 6〜30文字、小文字・数字・ハイフンのみ、
-	// 英字で始まる、末尾がハイフンでない。
+	// 接尾辞は乱数なので、値ではなく性質を検証する。
 	//
-	// - 通常の名前("My Project"): 小文字化され、空白がハイフンになる
-	// - 記号やアンダースコアを含む名前: ハイフンに置き換えられ、連続しない
-	// - 数字で始まる名前: 英字で始まるように接頭辞が付く
-	// - 30文字を超える長い名前: サフィックスの分を残して切り詰められる
-	// - 切り詰めた結果がハイフンで終わる: 末尾のハイフンが取り除かれる
-	// - 日本語など英数字を含まない名前: 固定の接頭辞にフォールバックする
-	// - 同じ名前で2回呼ぶ: ランダムなサフィックスにより結果が異なる
+	// - tried が空: name そのものを返す(30文字の name でも同じ)
+	// - tried が空でない: name + "-" + 数字6桁 を返す
+	// - 接尾辞は数字だけで、ID全体が30文字以下
+	// - name が23文字以下: 接尾辞は6桁
+	// - name が24〜28文字: 接尾辞が 30 - len(name) - 1 桁に短縮される
+	//   (24文字なら5桁、28文字なら1桁)
+	// - name が29〜30文字で tried が空でない: false を返す
+	// - tried に含まれる ID は返さない
+	// - tried を増やしながら5回呼ぶ: すべて異なる ID が返る
 }
 
 func TestProjectsClient_Delete(t *testing.T) {
@@ -65,8 +84,9 @@ func TestProjectsClient_Delete(t *testing.T) {
 }
 
 // Integration tests (would go in projects_integration_test.go behind the
-// "integration" build tag). Create and Delete change a real organization, and
-// each run leaves a project in DELETE_REQUESTED, so these are still undecided.
+// "integration" build tag). Create and Delete change a real organization. Each
+// run leaves a project in DELETE_REQUESTED, and the ID of a deleted project can
+// never be used again, so these are still undecided.
 //
 // - (未決定) ライフサイクル: ランダムな名前で Create → 返された ID で Get して
 //   ACTIVE を確認 → Delete → Get で DELETE_REQUESTED を確認。失敗時も
