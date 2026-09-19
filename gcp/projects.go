@@ -41,12 +41,29 @@ type ProjectsClient struct {
 // parent, which is "organizations/<id>" or "folders/<id>". An empty parent
 // creates projects with no parent.
 func NewProjectsClient(ctx context.Context, parent string, opts ...option.ClientOption) (*ProjectsClient, error) {
-	return nil, nil
+	svc, err := cloudresourcemanager.NewService(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("new cloudresourcemanager service: %w", err)
+	}
+	return &ProjectsClient{service: svc, parent: parent}, nil
+}
+
+func projectFromAPI(p *cloudresourcemanager.Project) *Project {
+	return &Project{
+		ID:     p.ProjectId,
+		Name:   p.DisplayName,
+		Parent: p.Parent,
+		State:  p.State,
+	}
 }
 
 // Get returns the project with the given project ID.
 func (c *ProjectsClient) Get(ctx context.Context, id string) (*Project, error) {
-	return nil, nil
+	p, err := c.service.Projects.Get("projects/" + id).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+	return projectFromAPI(p), nil
 }
 
 // Create creates a project with the given display name under the client's

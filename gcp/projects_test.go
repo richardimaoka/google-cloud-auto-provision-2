@@ -1,11 +1,39 @@
 package gcp
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
+	"google.golang.org/api/option"
 )
+
+// newFakeProjectsServer fakes the Resource Manager project endpoint that Get
+// relies on. It answers status for GET /v3/projects/my-project, returning
+// project when status is 200, and 404 for any other project ID.
+func newFakeProjectsServer(t *testing.T, status int, project *cloudresourcemanager.Project) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v3/projects/my-project", func(w http.ResponseWriter, r *http.Request) {
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+			return
+		}
+		json.NewEncoder(w).Encode(project)
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
 
 // Unit tests use a fake httptest server, like groups_test.go, that serves:
 //
@@ -25,13 +53,85 @@ import (
 // samples in sampledata/, which are only for reference.
 
 func TestProjectsClient_Get(t *testing.T) {
-	t.Skip("not implemented")
+	cases := []struct {
+		name    string
+		status  int
+		project *cloudresourcemanager.Project
+		wantErr string // substring of the expected error; empty means success
+		want    *Project
+	}{
+		{
+			name:   "既存のプロジェクト",
+			status: http.StatusOK,
+			project: &cloudresourcemanager.Project{
+				ProjectId:   "my-project",
+				DisplayName: "My Project",
+				Parent:      "organizations/100000000000",
+				State:       "ACTIVE",
+			},
+			want: &Project{ID: "my-project", Name: "My Project", Parent: "organizations/100000000000", State: "ACTIVE"},
+		},
+		{
+			name:   "親を持たないプロジェクト",
+			status: http.StatusOK,
+			project: &cloudresourcemanager.Project{
+				ProjectId:   "my-project",
+				DisplayName: "My Project",
+				State:       "ACTIVE",
+			},
+			want: &Project{ID: "my-project", Name: "My Project", State: "ACTIVE"},
+		},
+		{
+			name:   "DELETE_REQUESTED 状態のプロジェクト",
+			status: http.StatusOK,
+			project: &cloudresourcemanager.Project{
+				ProjectId:   "my-project",
+				DisplayName: "My Project",
+				State:       "DELETE_REQUESTED",
+			},
+			want: &Project{ID: "my-project", Name: "My Project", State: "DELETE_REQUESTED"},
+		},
+		{
+			name:    "存在しないプロジェクト",
+			status:  http.StatusNotFound,
+			wantErr: "get project",
+		},
+		{
+			name:    "権限不足",
+			status:  http.StatusForbidden,
+			wantErr: "get project",
+		},
+	}
 
-	// - 既存のプロジェクト: ID, Name, Parent, State が全て対応づけられる
-	// - 親を持たないプロジェクト: Parent が空
-	// - DELETE_REQUESTED 状態のプロジェクト: エラーにならず State がそのまま返る
-	// - 存在しないプロジェクト: "get project" を含むエラー
-	// - 権限不足: "get project" を含むエラー
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := newFakeProjectsServer(t, c.status, c.project)
+			client, err := NewProjectsClient(context.Background(), "", option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+			if err != nil {
+				t.Fatalf("NewProjectsClient: %v", err)
+			}
+
+			got, err := client.Get(context.Background(), "my-project")
+			if c.wantErr != "" {
+				if err == nil {
+					t.Fatal("Get() = nil error, want error")
+				}
+				if !strings.Contains(err.Error(), c.wantErr) {
+					t.Errorf("Get() error = %q, want it to contain %q", err, c.wantErr)
+				}
+				if got != nil {
+					t.Errorf("Get() = %+v on error, want nil", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Get() = %v, want nil error", err)
+			}
+			if !reflect.DeepEqual(got, c.want) {
+				t.Errorf("Get() = %+v, want %+v", got, c.want)
+			}
+		})
+	}
 }
 
 func TestProjectsClient_Create(t *testing.T) {
