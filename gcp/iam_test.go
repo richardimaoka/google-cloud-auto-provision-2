@@ -230,9 +230,8 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		}
 	})
 	t.Run("書き込みは、読んだ version に関わらず version 3 になる", func(t *testing.T) {
-		// Google answers with version 1 for a policy that has no conditional binding,
-		// even though we asked for version 3, so the version read says nothing about
-		// the version to write with. A write with a lower version drops conditions.
+		// Google answers version 1 for a policy without conditions, even if we ask
+		// for 3. So always write version 3, or conditions get dropped.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
 			[]fakeIAMResponse{written}) // the write works (answer ignored)
