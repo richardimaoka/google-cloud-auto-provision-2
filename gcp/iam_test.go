@@ -2,23 +2,11 @@ package gcp
 
 import "testing"
 
-// What the unit tests of IAMClient are for.
+// Unit tests for IAMClient.
 //
-// The integration test (iam_integration_test.go) runs against a real project. It
-// is what shows how the API really behaves: that a policy survives being set and
-// read back, that a condition is read with policy version 3, what a 403 looks
-// like, and what the API says to a role or a member that does not exist. So the
-// unit tests do not repeat any of that, and do not check that a response we made
-// up turns into the struct we expect. They cover what a real project can't give
-// us:
-//
-//   - Failures we can't cause on demand: a conflict on the etag (409), and the
-//     waits between retries.
-//   - Logic that is our own: how a binding is added to or removed from a policy,
-//     the read-modify-write loop, and the guard against removing the last owner
-//     of a project.
-//   - What the client sends, when a wrong request would damage a real policy: the
-//     policy version, the etag, and the conditions that must go back unchanged.
+// They cover failures we can't cause on demand (a conflict on the etag), our own
+// logic (the read-modify-write loop and the last-owner guard), and what the client
+// sends (policy version, etag, conditions).
 //
 // They use a fake httptest server, like projects_test.go, that serves
 //
