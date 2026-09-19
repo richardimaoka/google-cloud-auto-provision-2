@@ -3,10 +3,13 @@ package gcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -244,16 +247,88 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		}
 	})
 	t.Run("update の変更が送られる", func(t *testing.T) {
-		// A binding added, a member removed and a binding removed by update are in
-		// the body. A Condition of the result goes out with its title, description
-		// and expression. Nothing in the client sets one, but the integration test
-		// does, through updatePolicy.
-		t.Skip("not implemented")
+		// A member removed, a binding removed and a binding added by update are in the
+		// body, and a Condition goes out with its title, description and expression.
+		condition := &cloudresourcemanager.Expr{
+			Title:       "condition title",
+			Description: "condition description",
+			Expression:  `request.time < timestamp("2030-01-01T00:00:00Z")`,
+		}
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 3, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com", "user:bob@example.com"}},
+				{Role: "roles/editor", Members: []string{"user:carol@example.com"}},
+				{Role: "roles/bigquery.jobUser", Members: []string{"user:dave@example.com"}, Condition: condition},
+			}})},
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			p.Bindings[0].Members = []string{"user:alice@example.com"}
+			p.Bindings = slices.Delete(p.Bindings, 1, 2)
+			p.Bindings = append(p.Bindings, Binding{Role: "roles/browser", Members: []string{"user:erin@example.com"}})
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+
+		reqs := srv.SetRequests()
+		if len(reqs) != 1 {
+			t.Fatalf("got %d setIamPolicy requests, want 1", len(reqs))
+		}
+		want := []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			{Role: "roles/bigquery.jobUser", Members: []string{"user:dave@example.com"}, Condition: condition},
+			{Role: "roles/browser", Members: []string{"user:erin@example.com"}},
+		}
+		if got := reqs[0].Policy.Bindings; !reflect.DeepEqual(got, want) {
+			gotJSON, _ := json.Marshal(got)
+			wantJSON, _ := json.Marshal(want)
+			t.Errorf("request bindings = %s, want %s", gotJSON, wantJSON)
+		}
 	})
 	t.Run("変更がなければ書き込まない", func(t *testing.T) {
 		// update leaves the policy equal to the one read, so there is no
 		// setIamPolicy, and the etag is not spent on a write that changes nothing.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t, []fakeIAMResponse{ok(&cloudresourcemanager.Policy{
+			Version: 1, Etag: "etag-1",
+			Bindings: []*cloudresourcemanager.Binding{{Role: "roles/viewer", Members: []string{"user:alice@example.com"}}},
+		})}, nil)
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			// The same members, made again, are not a change.
+			p.Bindings[0].Members = append([]string(nil), p.Bindings[0].Members...)
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 0 {
+			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+		}
+	})
+	t.Run("メンバーをその場で書き換える変更も書き込まれる", func(t *testing.T) {
+		// update changes an element of Members itself. The policy it is compared with
+		// must not change along with it, or the write would be left out.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			}})},
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			p.Bindings[0].Members[0] = "user:bob@example.com"
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 1 {
+			t.Errorf("got %d setIamPolicy requests, want 1", len(reqs))
+		}
 	})
 
 	// The guard.
@@ -314,11 +389,40 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 	})
 	t.Run("update がエラーを返したら書き込まない", func(t *testing.T) {
 		// The error of update comes back, and the fake has seen no setIamPolicy.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t, []fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})}, nil)
+		client := newTestIAMClient(t, srv.URL)
+		boom := errors.New("boom")
+
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			p.Bindings = append(p.Bindings, Binding{Role: "roles/viewer", Members: []string{"user:alice@example.com"}})
+			return boom
+		})
+		if !errors.Is(err, boom) {
+			t.Errorf("updatePolicy() = %v, want the error of update", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 0 {
+			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+		}
 	})
 	t.Run("読み取りに失敗したら update も書き込みもしない", func(t *testing.T) {
 		// getIamPolicy answers 500. update was not called, and there was no
 		// setIamPolicy.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t, []fakeIAMResponse{{status: http.StatusInternalServerError}}, nil)
+		client := newTestIAMClient(t, srv.URL)
+
+		called := false
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			called = true
+			return nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "get iam policy") {
+			t.Errorf("updatePolicy() = %v, want an error that says get iam policy", err)
+		}
+		if called {
+			t.Error("update was called, want it not to be")
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 0 {
+			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+		}
 	})
 }

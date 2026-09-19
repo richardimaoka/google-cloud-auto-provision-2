@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
 	"google.golang.org/api/option"
@@ -74,7 +75,7 @@ func NewIAMClient(ctx context.Context, opts ...option.ClientOption) (*IAMClient,
 func policyFromAPI(p *cloudresourcemanager.Policy) *Policy {
 	policy := &Policy{Version: p.Version}
 	for _, b := range p.Bindings {
-		binding := Binding{Role: b.Role, Members: b.Members}
+		binding := Binding{Role: b.Role, Members: slices.Clone(b.Members)}
 		if b.Condition != nil {
 			binding.Condition = &Expr{
 				Title:       b.Condition.Title,
@@ -85,6 +86,14 @@ func policyFromAPI(p *cloudresourcemanager.Policy) *Policy {
 		policy.Bindings = append(policy.Bindings, binding)
 	}
 	return policy
+}
+
+// equal reports whether two policies have the same bindings, in the same order.
+func (p *Policy) equal(o *Policy) bool {
+	return slices.EqualFunc(p.Bindings, o.Bindings, func(a, b Binding) bool {
+		sameCondition := a.Condition == b.Condition || (a.Condition != nil && b.Condition != nil && *a.Condition == *b.Condition)
+		return a.Role == b.Role && slices.Equal(a.Members, b.Members) && sameCondition
+	})
 }
 
 // policyToAPI turns a Policy back into the API's, to be written with the etag it
@@ -162,9 +171,13 @@ func (c *IAMClient) updatePolicy(ctx context.Context, projectID string, update f
 	if err != nil {
 		return err
 	}
+	// update gets its own copy, so the one read is left to compare with.
 	policy := policyFromAPI(current)
 	if err := update(policy); err != nil {
 		return err
+	}
+	if policy.equal(policyFromAPI(current)) {
+		return nil
 	}
 
 	// A Policy does not hold everything the API's has, like the audit configs, so
