@@ -37,15 +37,65 @@ const userManagedDomainSuffix = ".iam.gserviceaccount.com"
 
 var errUnknownServiceAccount = errors.New("a service account is in a form this tool doesn't know, replace it by hand")
 
+// A condition is a CEL expression with a title and a description. The tool
+// leaves them as they are, so it lets through only an expression that has no
+// value of the project in it: one that uses just these attributes of the request
+// and the resource. An attribute like resource.name can hold the name of a
+// resource, so it is not one of them.
+var knownConditionAttributes = []string{"request.time", "resource.type", "resource.service"}
+
+var (
+	stringLiteralRE = regexp.MustCompile(`"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'`)
+	// attributeRE finds the attributes in an expression, where the string
+	// literals are left out.
+	attributeRE = regexp.MustCompile(`\b(?:request|resource|api|destination|origin)\.[A-Za-z_][A-Za-z0-9_.]*`)
+)
+
+var errUnknownCondition = errors.New("a binding has a condition this tool doesn't know, replace it by hand")
+
+func checkCondition(v any) error {
+	condition, ok := v.(map[string]any)
+	if !ok {
+		return errUnknownCondition
+	}
+	for key, value := range condition {
+		if _, isString := value.(string); !isString || (key != "expression" && key != "title" && key != "description") {
+			return errUnknownCondition
+		}
+	}
+	expression, _ := condition["expression"].(string)
+	if expression == "" {
+		return errUnknownCondition
+	}
+	for _, attribute := range attributeRE.FindAllString(stringLiteralRE.ReplaceAllString(expression, `""`), -1) {
+		if !isKnownConditionAttribute(attribute) {
+			return errUnknownCondition
+		}
+	}
+	return nil
+}
+
+func isKnownConditionAttribute(attribute string) bool {
+	for _, known := range knownConditionAttributes {
+		if attribute == known || strings.HasPrefix(attribute, known+".") {
+			return true
+		}
+	}
+	return false
+}
+
 // checkBindings stops on a binding that has something this tool does not
-// replace: a condition, which can hold names of resources, or a member of a form
-// it does not know, like a deleted member with its ID or a workload identity.
+// replace: a condition it does not know (see checkCondition), or a member of a
+// form it does not know, like a deleted member with its ID or a workload
+// identity.
 func checkBindings(top map[string]any) error {
 	bindings, _ := top["bindings"].([]any)
 	for _, b := range bindings {
 		binding, _ := b.(map[string]any)
-		if _, ok := binding["condition"]; ok {
-			return errors.New("a binding has a condition, which this tool doesn't handle, replace it by hand")
+		if condition, ok := binding["condition"]; ok {
+			if err := checkCondition(condition); err != nil {
+				return err
+			}
 		}
 		members, _ := binding["members"].([]any)
 		for _, m := range members {
@@ -171,6 +221,30 @@ func isPlaceholderEmail(email string) bool {
 
 func isPlaceholderNumber(s string) bool {
 	return slices.Contains(ownProjectNumbers, s) || slices.Contains(otherProjectNumbers, s)
+}
+
+// conditionHashes are the placeholders for the hash after "_withcond_" in a role
+// name. A conditional binding read without policy version 3 has its condition
+// left out, and the role name gets the hash of the condition instead.
+var conditionHashes = []string{"aaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccc"}
+
+var conditionHashRE = regexp.MustCompile(`(_withcond_)[0-9a-f]{8,}`)
+
+// anonymizeConditionHashes replaces the hashes in the role names of conditional
+// bindings. The same hash gets the same placeholder.
+func anonymizeConditionHashes(text string) (string, error) {
+	hashes := newAllocator("condition hashes", conditionHashes)
+	var failure error
+	out := conditionHashRE.ReplaceAllStringFunc(text, func(match string) string {
+		hash := strings.TrimPrefix(match, "_withcond_")
+		placeholder, err := hashes.get(hash)
+		if err != nil {
+			failure = err
+			return match
+		}
+		return "_withcond_" + placeholder
+	})
+	return out, failure
 }
 
 // replaceIAMEtag replaces the etag of an IAM policy.

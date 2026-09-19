@@ -45,6 +45,9 @@ Look at the result with `git diff`, and add the sample to the README of `gcp/sam
 | `projects.get.success.with_parent.sh` | `PROJECT` (ACTIVE, has a parent) | read only |
 | `projects.get.success.delete_requested.sh` | `PROJECT` (deleted) | read only |
 | `operations.get.success.delete_done.sh` | `OPERATION` | read only |
+| `projects.getIamPolicy.success.no_condition.sh` | `PROJECT` (no conditional binding) | read only |
+| `projects.getIamPolicy.success.with_condition.sh` | `PROJECT` (has a conditional binding, see the script) | read only |
+| `projects.getIamPolicy.error.sh` | | read only, random ID |
 | `projects.create.error.invalid_argument.sh` | | rejected, creates nothing |
 | `projects.create.error.already_exists.sh` | `EXISTING_PROJECT_ID` | rejected, creates nothing |
 | `projects.delete.error.non_existent.sh` | | random ID, deletes nothing |

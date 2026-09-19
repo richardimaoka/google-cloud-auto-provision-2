@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "etag": "BwAAAAAAAAA=",
+  "bindings": [
+    {
+      "role": "roles/owner",
+      "members": [
+        "user:alice@example.com"
+      ]
+    }
+  ]
+}

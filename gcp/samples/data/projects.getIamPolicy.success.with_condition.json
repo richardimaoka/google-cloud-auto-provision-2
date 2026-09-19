@@ -1,7 +1,18 @@
 {
-  "version": 1,
+  "version": 3,
   "etag": "BwAAAAAAAAA=",
   "bindings": [
+    {
+      "role": "roles/bigquery.connectionUser",
+      "members": [
+        "user:alice@example.com"
+      ],
+      "condition": {
+        "expression": "request.time.getHours(\"America/Eirunepe\") \u003c= 4 &&\nresource.type == \"agentregistry.googleapis.com/Skill\"",
+        "title": "condition title 1",
+        "description": "condition description 1"
+      }
+    },
     {
       "role": "roles/bigquery.jobUser",
       "members": [

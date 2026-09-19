@@ -125,6 +125,10 @@ func anonymize(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	text, err = anonymizeConditionHashes(text)
+	if err != nil {
+		return nil, err
+	}
 	text = replaceIAMEtag(text)
 	var ordered []string
 	for id := range found {

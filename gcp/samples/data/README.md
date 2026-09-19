@@ -18,6 +18,7 @@ A recorded response holds real identifiers. `go run ./cmd/anonymize gcp/samples/
 | Organization | `organizations/100000000000`, then `200000000000`, `300000000000` |
 | Project ID (`projectId`, and a violation's `subject`), everywhere it appears | `my-project-123`, then `my-project-456`, `my-project-789` |
 | Project ID in an error response that is not a `projectId` (`projects/<ID>`, a project the caller cannot use or that does not exist) | `this-does-not-exist-1`, then `this-does-not-exist-2`, `this-does-not-exist-3` |
+| Hash after `_withcond_` in a role name (a policy read without version 3, which the client never does) | `aaaaaaaaaaaaaaaaaaaa`, then `bbbbbbbbbbbbbbbbbbbb`, `cccccccccccccccccccc` |
 | Number of an operation | `operations/dp.1234567890123456789` and the like |
 | `etag` of a project | `W/"0123456789abcdef"` |
 | `etag` of an IAM policy (base64, no `W/`) | `BwAAAAAAAAA=` |
@@ -29,9 +30,11 @@ A recorded response holds real identifiers. `go run ./cmd/anonymize gcp/samples/
 | `domain:` member | `domain:example.com` |
 | Error ID (base64, holds a request UUID and the resource) | UUID `00000000-0000-0000-0000-000000000000`, and the resource replaced as above |
 
+A `condition` is left as it is, and only if its `expression` uses no attribute but `request.time`, `resource.type` and `resource.service`. Another one, like `resource.name`, can hold the name of a resource, and the tool stops. The `title` and the `description` are free text and are not checked, so keep real names out of them when you record.
+
 A service agent (`service-<n>@<agent>.iam.gserviceaccount.com`) keeps its domain, which belongs to Google. `allUsers` and `allAuthenticatedUsers` stay as they are.
 
-The same real value gets the same placeholder within a file. Times, and the names of projects made up not to exist (they start with `this-does-not-exist`), stay as they are. The tool stops, and writes nothing, if an email address that is not `@example.com` is left (the service account addresses above are the exception), an error ID has a layout it doesn't know, or an IAM binding has a `condition`, a member such as `deleted:` or `principal://`, or a service account in a form it doesn't know. Replace those by hand.
+The same real value gets the same placeholder within a file. Times, and the names of projects made up not to exist (they start with `this-does-not-exist`), stay as they are. The tool stops, and writes nothing, if an email address that is not `@example.com` is left (the service account addresses above are the exception), an error ID has a layout it doesn't know, or an IAM binding has a member such as `deleted:` or `principal://`, a service account in a form it doesn't know, or a `condition` it doesn't know. Replace those by hand.
 
 The groups samples were made by hand: `example.com` addresses, `groups/0123456789abcde`, `customers/C0123abcd`. The tool does not handle them.
 
@@ -129,5 +132,6 @@ POST https://cloudresourcemanager.googleapis.com/v3/{resource=projects/*}:getIam
 https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/getIamPolicy
 ```
 
-- [`projects.getIamPolicy.success.json`](./projects.getIamPolicy.success.json) (the policy of a project: `bindings` hold one role with its `members`. Members are service accounts, service agents and a user)
+- [`projects.getIamPolicy.success.no_condition.json`](./projects.getIamPolicy.success.no_condition.json) (a policy with no conditional binding, so `version` is 1 even though version 3 was requested. It has one binding: the owner)
+- [`projects.getIamPolicy.success.with_condition.json`](./projects.getIamPolicy.success.with_condition.json) (a policy with a conditional binding, read with `requestedPolicyVersion` 3. `version` is 3, and the binding has a `condition` with `expression`, `title` and `description`. The other bindings are service accounts and service agents)
 - [`projects.getIamPolicy.error.json`](./projects.getIamPolicy.error.json) (403 PERMISSION_DENIED, for a project the caller cannot use or that does not exist. The API does not tell the two apart)

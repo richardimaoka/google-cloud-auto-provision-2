@@ -66,8 +66,6 @@ func TestAnonymize_RestoresSamplesFromRealLookingValues(t *testing.T) {
 		"1234567890123456789", "8882223334445556667",
 		"0123456789abcdef", "deadbeefcafe0123",
 		"my-project-123", "it-test-project-77",
-		// The same length as the placeholder, so an encoded error ID keeps its padding.
-		"this-does-not-exist-1", "someone-elses-proj-99",
 		// Members of an IAM policy.
 		"service-123456789012", "service-555000111222",
 		"123456789012-compute", "555000111222-compute",
@@ -76,6 +74,7 @@ func TestAnonymize_RestoresSamplesFromRealLookingValues(t *testing.T) {
 		"group:group-1@example.com", "group:team@company.test",
 		"my-service-account", "svc-real-name",
 		"BwAAAAAAAAA=", "BwZzzzzzzzz=",
+		"_withcond_aaaaaaaaaaaaaaaaaaaa", "_withcond_9f8e7d6c5b4a39281706",
 	)
 	resource := func(res string) (string, error) {
 		return values.Replace(res), nil
@@ -171,6 +170,24 @@ func TestAnonymize_Rules(t *testing.T) {
 				`{"role":"roles/viewer","members":["projectViewer:my-project-123","user:alice@example.com","user:bob@example.com"]}]}`,
 		},
 		{
+			name: "version 3 で読まなかった条件付きバインディングのロール名のハッシュ",
+			in: `{"version":1,"bindings":[{"role":"roles/bigquery.connectionUser_withcond_fc0a29ef85dc00364af5","members":["allUsers"]},` +
+				`{"role":"roles/storage.objectViewer_withcond_1234567890abcdef1234","members":["allUsers"]},` +
+				`{"role":"roles/bigquery.connectionUser_withcond_fc0a29ef85dc00364af5","members":["allUsers"]}]}`,
+			want: `{"version":1,"bindings":[{"role":"roles/bigquery.connectionUser_withcond_aaaaaaaaaaaaaaaaaaaa","members":["allUsers"]},` +
+				`{"role":"roles/storage.objectViewer_withcond_bbbbbbbbbbbbbbbbbbbb","members":["allUsers"]},` +
+				`{"role":"roles/bigquery.connectionUser_withcond_aaaaaaaaaaaaaaaaaaaa","members":["allUsers"]}]}`,
+		},
+		{
+			name: "条件付きバインディング(request.time と resource.type だけを使う式)は、条件をそのまま残す",
+			in: `{"version":3,"bindings":[{"role":"roles/bigquery.connectionUser","members":["user:jane@company.test"],` +
+				`"condition":{"expression":"request.time.getHours(\"America/Eirunepe\") \u003c= 4 && resource.type == \"x.googleapis.com/Y\"",` +
+				`"title":"condition title","description":"condition description"}}]}`,
+			want: `{"version":3,"bindings":[{"role":"roles/bigquery.connectionUser","members":["user:alice@example.com"],` +
+				`"condition":{"expression":"request.time.getHours(\"America/Eirunepe\") \u003c= 4 && resource.type == \"x.googleapis.com/Y\"",` +
+				`"title":"condition title","description":"condition description"}}]}`,
+		},
+		{
 			name: "サービスアカウントのプロジェクト番号は projects/<番号> と同じプレースホルダー",
 			in: `{"name":"projects/555000111222","bindings":[{"role":"roles/editor",` +
 				`"members":["serviceAccount:555000111222-compute@developer.gserviceaccount.com"]}]}`,
@@ -256,8 +273,23 @@ func TestAnonymize_Errors(t *testing.T) {
 		{"example.com のサブドメイン", `{"user":"erin@mail.example.com"}`, "is left"},
 		{"別名のドメイン(以前は許していた)", `{"user":"emergency-group@example.com.test-google-a.com"}`, "is left"},
 		{
-			"IAM: 条件付きのバインディング",
+			"IAM: 式のない条件",
 			`{"bindings":[{"role":"roles/viewer","members":["allUsers"],"condition":{"title":"t"}}]}`,
+			"has a condition",
+		},
+		{
+			"IAM: リソース名が入りうる式の条件",
+			`{"bindings":[{"role":"roles/viewer","members":["user:a@x.test"],"condition":{"expression":"resource.name.startsWith(\"projects/_/buckets/real\")"}}]}`,
+			"has a condition",
+		},
+		{
+			"IAM: 知らない属性を含む式の条件",
+			`{"bindings":[{"role":"roles/viewer","members":["user:a@x.test"],"condition":{"expression":"request.time < timestamp(\"2030-01-01T00:00:00Z\") && api.getAttribute(\"a\", \"b\")"}}]}`,
+			"has a condition",
+		},
+		{
+			"IAM: 知らないキーのある条件",
+			`{"bindings":[{"role":"roles/viewer","members":["user:a@x.test"],"condition":{"expression":"request.time < timestamp(\"2030-01-01T00:00:00Z\")","location":"real.yaml:3"}}]}`,
 			"has a condition",
 		},
 		{
@@ -279,6 +311,11 @@ func TestAnonymize_Errors(t *testing.T) {
 			"IAM: メンバー以外の場所にあるサービスアカウントのメールアドレスは残る",
 			`{"note":"svc@real-proj-x.iam.gserviceaccount.com"}`,
 			"is left",
+		},
+		{
+			"IAM: 条件のハッシュのプレースホルダーが足りない",
+			`{"bindings":[{"role":"r_withcond_00000001"},{"role":"r_withcond_00000002"},{"role":"r_withcond_00000003"},{"role":"r_withcond_00000004"}]}`,
+			"distinct condition hashes",
 		},
 		{
 			"IAM: ユーザーのプレースホルダーが足りない",
