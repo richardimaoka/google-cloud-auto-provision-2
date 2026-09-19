@@ -6,15 +6,17 @@ import "testing"
 //
 // The integration test (iam_integration_test.go) runs against a real project. It
 // is what shows how the API really behaves: that a policy survives being set and
-// read back, that a condition is read with policy version 3, and what a 403
-// looks like. So the unit tests do not repeat any of that, and do not check that
-// a response we made up turns into the struct we expect. They cover what a real
-// project can't give us:
+// read back, that a condition is read with policy version 3, what a 403 looks
+// like, and what the API says to a role or a member that does not exist. So the
+// unit tests do not repeat any of that, and do not check that a response we made
+// up turns into the struct we expect. They cover what a real project can't give
+// us:
 //
 //   - Failures we can't cause on demand: a conflict on the etag (409), and the
 //     waits between retries.
-//   - Logic that is our own: the read-modify-write loop of UpdatePolicy, and its
-//     guard against removing the last owner of a project.
+//   - Logic that is our own: how a binding is added to or removed from a policy,
+//     the read-modify-write loop, and the guard against removing the last owner
+//     of a project.
 //   - What the client sends, when a wrong request would damage a real policy: the
 //     policy version, the etag, and the conditions that must go back unchanged.
 //
@@ -34,22 +36,49 @@ import "testing"
 // The client keeps its wait between retries in a field, like pollInterval in
 // ProjectsClient, so a test replaces it and never sleeps.
 //
-// UpdatePolicy(ctx, projectID, update func(*Policy) error) error is the name
-// used here for the read-modify-write operation. The etag is kept inside it, so
-// Policy has no Etag.
-//
-// The guard: a project whose policy has no owner can't be changed by anyone who
-// gets access only through it. So UpdatePolicy refuses a change that leaves a
-// project with no owner, when the policy it read had one. An owner is a member of
-// an unconditional roles/owner binding, and a "deleted:" member is not one, as it
-// grants nothing. The error is ErrLastOwner (a provisional name), found with
-// errors.Is, and nothing is written or retried. A policy that had no owner to
-// begin with, for example because the owners come from the organization, is
-// written as it is.
-//
 // The clients take a project ID, or a number, and do not check it, like
 // ProjectsClient. Only projects are handled: nothing here is for folders or
 // organizations.
+//
+// What is tested, from the outside in. The names are the ones planned, and the
+// errors are provisional.
+//
+//	GetPolicy(ctx, projectID) (*Policy, error)
+//	AddBinding(ctx, projectID, role, member string) error
+//	RemoveBinding(ctx, projectID, role, member string) error
+//
+// AddBinding and RemoveBinding take one role and one member, both strings, the
+// member in the form the API uses, like "user:alice@example.com". They are named
+// after gcloud's add-iam-policy-binding and remove-iam-policy-binding.
+// AddBinding does nothing if the member has the role already, and writes nothing.
+// RemoveBinding returns ErrBindingNotFound if the member does not have the role:
+// the name given does not match anything, like a role that does not exist does for
+// AddBinding.
+//
+// This client reads conditional bindings, but does not set them. Neither method
+// takes a condition, and they work on the unconditional bindings only, like gcloud
+// does with --condition=None: a member is added to the unconditional binding of a
+// role, and removed from it, and a binding that has a Condition is never touched.
+// A write sends the conditional bindings back as they were read, so it does not
+// change who has access.
+//
+// Below them is updatePolicy, in package gcp and not exported:
+//
+//	(*IAMClient).updatePolicy(ctx, projectID, update func(*Policy) error) error
+//
+// It is the read-modify-write operation. The etag is kept inside it, so Policy has
+// no Etag. It does not write if update left the policy equal to the one it read.
+// What AddBinding and RemoveBinding do to a policy, find the unconditional binding
+// of a role and put a member in it or take one out, is small, and is tested through
+// them, not on a Policy by itself. A binding whose last member goes is removed.
+//
+// The guard: a project whose policy has no owner can't be changed by anyone who
+// gets access only through it. So updatePolicy refuses a change that leaves a
+// project with no owner, when the policy it read had one. An owner is a member of
+// an unconditional roles/owner binding, and a "deleted:" member is not one, as it
+// grants nothing. The error is ErrLastOwner, found with errors.Is, and nothing is
+// written or retried. A policy that had no owner to begin with, for example
+// because the owners come from the organization, is written as it is.
 //
 // Every case below is skipped until it is written.
 
@@ -62,25 +91,79 @@ func TestIAMClient_GetPolicy(t *testing.T) {
 	})
 }
 
-func TestIAMClient_UpdatePolicy(t *testing.T) {
+func TestIAMClient_AddBinding(t *testing.T) {
+	t.Run("ロールがなければ新しいバインディングを書き込む", func(t *testing.T) {
+		// The setIamPolicy body has a binding of the role with the member, and the
+		// rest of the policy as it was.
+		t.Skip("not implemented")
+	})
+	t.Run("ロールに条件なしのバインディングがあれば、そこにメンバーを足す", func(t *testing.T) {
+		// The number of bindings does not grow, and the member is the last of the
+		// binding. The policy read has a conditional binding too, like
+		// with_condition.json, and the body still has it with its title,
+		// description and expression. A write that dropped a condition would change
+		// who has access.
+		t.Skip("not implemented")
+	})
+	t.Run("ロールに条件付きのバインディングしかなければ、条件なしを新しく作る", func(t *testing.T) {
+		// The member is not put into the conditional binding, which would give it
+		// the role only while the condition holds. A new unconditional binding is
+		// made, and the conditional one goes back as it was.
+		t.Skip("not implemented")
+	})
+	t.Run("すでにあれば書き込まずに成功する", func(t *testing.T) {
+		// No error, and the fake has seen no setIamPolicy.
+		t.Skip("not implemented")
+	})
+}
+
+func TestIAMClient_RemoveBinding(t *testing.T) {
+	t.Run("メンバーを外して書き込む", func(t *testing.T) {
+		// The other members of the binding, and the other bindings, stay.
+		t.Skip("not implemented")
+	})
+	t.Run("最後のメンバーを外すとバインディングごと消える", func(t *testing.T) {
+		t.Skip("not implemented")
+	})
+	t.Run("条件付きバインディングのメンバーは外さない", func(t *testing.T) {
+		// The member is in the unconditional binding of the role and in a
+		// conditional one. It is removed from the first only, and the conditional
+		// binding goes back with its condition.
+		t.Skip("not implemented")
+	})
+	t.Run("見つからなければ ErrBindingNotFound で、書き込まない", func(t *testing.T) {
+		// errors.Is finds ErrBindingNotFound, and the fake has seen no
+		// setIamPolicy. A member that is only in a conditional binding of the role
+		// counts as not found.
+		t.Skip("not implemented")
+	})
+	t.Run("最後の owner を外すと ErrLastOwner", func(t *testing.T) {
+		// The guard of updatePolicy reaches the caller. The cases of the guard
+		// are in TestIAMClient_updatePolicy.
+		t.Skip("not implemented")
+	})
+}
+
+func TestIAMClient_updatePolicy(t *testing.T) {
 	t.Run("読んだ etag とバージョン3を書き込みに付ける", func(t *testing.T) {
 		// The setIamPolicy body has the etag that getIamPolicy returned, and
 		// version 3, whatever version was read.
 		t.Skip("not implemented")
 	})
-	t.Run("変更していない条件付きバインディングは、条件ごとそのまま送り返す", func(t *testing.T) {
-		// The policy read has an unconditional binding and a conditional one, like
-		// with_condition.json. update adds a member to the first only. The body
-		// still has the conditional binding, with its title, description and
-		// expression, and nothing else changed. A write that dropped a condition
-		// would change who has access.
-		t.Skip("not implemented")
-	})
 	t.Run("update の変更が送られる", func(t *testing.T) {
 		// A binding added, a member removed and a binding removed by update are in
-		// the body. A Condition of the result goes out with its three fields.
+		// the body. A Condition of the result goes out with its title, description
+		// and expression. Nothing in the client sets one, but the integration test
+		// does, through updatePolicy.
 		t.Skip("not implemented")
 	})
+	t.Run("変更がなければ書き込まない", func(t *testing.T) {
+		// update leaves the policy equal to the one read, so there is no
+		// setIamPolicy, and the etag is not spent on a write that changes nothing.
+		t.Skip("not implemented")
+	})
+
+	// The guard.
 	t.Run("最後の owner を外す変更は、書き込まずにエラーにする", func(t *testing.T) {
 		// The policy read has one owner, and update removes it (or the whole
 		// binding). The error is ErrLastOwner. The fake has seen no setIamPolicy,
@@ -107,6 +190,8 @@ func TestIAMClient_UpdatePolicy(t *testing.T) {
 		// ErrLastOwner. To be decided, together with what counts as an owner.
 		t.Skip("not implemented")
 	})
+
+	// Conflicts and errors.
 	t.Run("etag が競合したら読み直して update をやり直す", func(t *testing.T) {
 		// The first setIamPolicy answers 409 ABORTED. The client reads again, calls
 		// update again with the policy it read this time, and writes with the new
@@ -143,15 +228,4 @@ func TestIAMClient_UpdatePolicy(t *testing.T) {
 		// setIamPolicy.
 		t.Skip("not implemented")
 	})
-	t.Run("変更がなければ書き込まない", func(t *testing.T) {
-		// update leaves the policy as it was, so there is no setIamPolicy. To be
-		// decided: it avoids a write that changes nothing, and the etag with it.
-		t.Skip("not implemented")
-	})
 }
-
-// If Policy gets methods of its own, like AddMember or RemoveMember, their tests
-// go here, as plain tests on a Policy with no server: a member is added to the
-// binding that has the same role and the same condition, and to no other; a
-// member that is there already is not added twice; a binding is removed when its
-// last member goes. Nothing is decided about them yet.

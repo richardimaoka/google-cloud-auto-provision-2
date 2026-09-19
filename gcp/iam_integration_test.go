@@ -16,7 +16,8 @@ import "testing"
 // steps of one test.
 //
 //  1. Save the policy the project has now, and restore it when the test ends,
-//     even if it failed.
+//     even if it failed. It goes through updatePolicy, which the test can call
+//     as it is in package gcp.
 //  2. Reduce the policy to almost nothing: keep the roles/owner binding of the
 //     account that runs the test. Removing it would leave nobody who can change
 //     the policy again.
@@ -32,27 +33,47 @@ func TestIAMClient_Policy_Integration(t *testing.T) {
 		t.Skip("not implemented")
 	})
 	t.Run("無条件のバインディングを足して読み戻せる", func(t *testing.T) {
-		// UpdatePolicy adds a service account and a group, each with a role, and
-		// one binding with two members. GetPolicy returns the same Bindings, so
-		// this also shows how the Policy of ours turns into the API's and back.
+		// AddBinding adds a service account and a group, each with a role, and a
+		// second member to one of those roles, one call for each. GetPolicy returns
+		// the same Bindings, so this also shows how the Policy of ours turns into
+		// the API's and back.
 		t.Skip("not implemented")
 	})
-	t.Run("条件付きバインディングを足して読み戻せる", func(t *testing.T) {
-		// UpdatePolicy adds a binding with a Condition (a title, a description and
-		// an expression on request.time). GetPolicy returns it with the same three
-		// fields, and Version 3. The same role without a condition, kept as its own
-		// binding, is still there. This is what needs policy version 3.
+	t.Run("同じものをもう一度足しても、ポリシーは変わらない", func(t *testing.T) {
+		// AddBinding of a role and a member that are there returns no error, and the
+		// policy GetPolicy returns is the same, member by member.
+		t.Skip("not implemented")
+	})
+	t.Run("条件付きバインディングを読める", func(t *testing.T) {
+		// The test makes the binding with updatePolicy, which the client does not
+		// offer as a way to set a condition: a Condition (a title, a description
+		// and an expression on request.time) on a role that has an unconditional
+		// binding too. GetPolicy returns it with the same three fields, and Version
+		// 3, and the unconditional binding as its own. This is what needs policy
+		// version 3.
 		t.Skip("not implemented")
 	})
 	t.Run("条件付きバインディングのあるポリシーを更新しても条件が残る", func(t *testing.T) {
-		// UpdatePolicy adds a member to an unconditional binding. The conditional
+		// AddBinding adds a member to an unconditional binding. The conditional
 		// binding from the step before has its condition still.
 		t.Skip("not implemented")
 	})
+	t.Run("存在しないメンバーやロールは足せず、ポリシーは変わらない", func(t *testing.T) {
+		// AddBinding of a role that does not exist, and of a member that does not
+		// exist, each return an error that wraps a *googleapi.Error with code 400.
+		// The API checks both, which the fake can't. GetPolicy afterwards returns the
+		// same policy as before.
+		t.Skip("not implemented")
+	})
+	t.Run("ないメンバーを外すと ErrBindingNotFound", func(t *testing.T) {
+		// RemoveBinding of a member that does not have the role returns
+		// ErrBindingNotFound, and the policy is the same.
+		t.Skip("not implemented")
+	})
 	t.Run("最後の owner を外そうとするとエラーで、ポリシーは変わらない", func(t *testing.T) {
-		// UpdatePolicy that removes every roles/owner member returns ErrLastOwner.
-		// GetPolicy afterwards returns the same policy as before, so the guard
-		// stopped the write, and the account can still change the policy.
+		// RemoveBinding of every roles/owner member returns ErrLastOwner. GetPolicy
+		// afterwards returns the same policy as before, so the guard stopped the
+		// write, and the account can still change the policy.
 		t.Skip("not implemented")
 	})
 	t.Run("存在しないプロジェクトは 403", func(t *testing.T) {
