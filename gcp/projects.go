@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"slices"
@@ -49,6 +50,17 @@ type ProjectsClient struct {
 	// nextID picks the project ID for each attempt of Create. Tests replace it
 	// to script the IDs.
 	nextID func(name string, tried []string) (string, bool)
+
+	// Logger receives progress messages of Create and Delete. Nil means no
+	// logging.
+	Logger *slog.Logger
+}
+
+func (c *ProjectsClient) logger() *slog.Logger {
+	if c.Logger == nil {
+		return slog.New(slog.DiscardHandler)
+	}
+	return c.Logger
 }
 
 func NewProjectsClient(ctx context.Context, opts ...option.ClientOption) (*ProjectsClient, error) {
@@ -99,19 +111,22 @@ func (c *ProjectsClient) Get(ctx context.Context, id string) (*Project, error) {
 // name is so long that not even a one-digit suffix fits, Create makes only the
 // first attempt, and returns its error if it fails.
 func (c *ProjectsClient) Create(ctx context.Context, name string) (*Project, error) {
+	log := c.logger()
 	var tried []string
 	var conflict error
-	for range maxCreateAttempts {
+	for attempt := range maxCreateAttempts {
 		id, ok := c.nextID(name, tried)
 		if !ok {
 			break
 		}
 
+		log.Info("creating project", "project_id", id, "attempt", attempt+1, "max_attempts", maxCreateAttempts)
 		op, err := c.service.Projects.Create(&cloudresourcemanager.Project{
 			ProjectId:   id,
 			DisplayName: name,
 		}).Context(ctx).Do()
 		if isConflict(err) {
+			log.Info("project ID is already taken", "project_id", id)
 			tried = append(tried, id)
 			conflict = err
 			continue
@@ -128,6 +143,7 @@ func (c *ProjectsClient) Create(ctx context.Context, name string) (*Project, err
 		if err := json.Unmarshal(done.Response, &p); err != nil {
 			return nil, fmt.Errorf("create project: parse operation response: %w", err)
 		}
+		log.Info("created project", "project_id", p.ProjectId, "attempt", attempt+1)
 		return projectFromAPI(&p), nil
 	}
 	return nil, fmt.Errorf("create project: no free project ID for %q after %d attempts: %w", name, len(tried), conflict)
@@ -176,6 +192,8 @@ func nextProjectID(name string, tried []string) (string, bool) {
 // Delete marks the project for deletion, which moves it to the DELETE_REQUESTED
 // state. It blocks until the long-running delete operation finishes.
 func (c *ProjectsClient) Delete(ctx context.Context, id string) error {
+	log := c.logger()
+	log.Info("deleting project", "project_id", id)
 	op, err := c.service.Projects.Delete("projects/" + id).Context(ctx).Do()
 	if err != nil {
 		return fmt.Errorf("delete project: %w", err)
@@ -183,6 +201,7 @@ func (c *ProjectsClient) Delete(ctx context.Context, id string) error {
 	if _, err := c.waitOperation(ctx, op); err != nil {
 		return fmt.Errorf("delete project: %w", err)
 	}
+	log.Info("deleted project", "project_id", id)
 	return nil
 }
 
@@ -190,6 +209,7 @@ func (c *ProjectsClient) Delete(ctx context.Context, id string) error {
 // It returns an error if a poll fails, if ctx ends first, or if the operation
 // finishes with an error.
 func (c *ProjectsClient) waitOperation(ctx context.Context, op *cloudresourcemanager.Operation) (*cloudresourcemanager.Operation, error) {
+	log := c.logger()
 	for !op.Done {
 		select {
 		case <-ctx.Done():
@@ -197,6 +217,7 @@ func (c *ProjectsClient) waitOperation(ctx context.Context, op *cloudresourceman
 		case <-time.After(c.pollInterval):
 		}
 
+		log.Debug("polling operation", "operation", op.Name)
 		var err error
 		op, err = c.service.Operations.Get(op.Name).Context(ctx).Do()
 		if err != nil {
@@ -206,5 +227,6 @@ func (c *ProjectsClient) waitOperation(ctx context.Context, op *cloudresourceman
 	if op.Error != nil {
 		return nil, fmt.Errorf("operation failed: %s (code %d)", op.Error.Message, op.Error.Code)
 	}
+	log.Debug("operation done", "operation", op.Name)
 	return op, nil
 }

@@ -1,11 +1,13 @@
 package gcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -463,6 +465,107 @@ func TestProjectsClient_Create(t *testing.T) {
 	})
 
 	// (未決定) ポーリング中に context がキャンセルされる: 待機を止めてエラーを返す
+}
+
+func TestProjectsClient_Logs(t *testing.T) {
+	// logs returns the msg of each JSON log line, and every line as a map.
+	logs := func(t *testing.T, buf *bytes.Buffer) ([]string, []map[string]any) {
+		t.Helper()
+		var msgs []string
+		var lines []map[string]any
+		for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+			if line == "" {
+				continue
+			}
+			var m map[string]any
+			if err := json.Unmarshal([]byte(line), &m); err != nil {
+				t.Fatalf("log line %q is not JSON: %v", line, err)
+			}
+			msgs = append(msgs, m["msg"].(string))
+			lines = append(lines, m)
+		}
+		return msgs, lines
+	}
+	newLogger := func(buf *bytes.Buffer, level slog.Level) *slog.Logger {
+		return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: level}))
+	}
+
+	running := &cloudresourcemanager.Operation{Name: "operations/op-1"}
+	done := &cloudresourcemanager.Operation{Name: "operations/op-1", Done: true}
+	ok := func(op *cloudresourcemanager.Operation) fakeResponse {
+		return fakeResponse{status: http.StatusOK, op: op}
+	}
+
+	t.Run("Createは試行と衝突と完了を出力する", func(t *testing.T) {
+		project, err := json.Marshal(&cloudresourcemanager.Project{ProjectId: "my-project-111111", DisplayName: "my-project"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		finished := &cloudresourcemanager.Operation{Name: "operations/op-1", Done: true, Response: googleapi.RawMessage(project)}
+		conflict := fakeResponse{status: http.StatusConflict, body: `{"error":{"code":409,"status":"ALREADY_EXISTS"}}`}
+
+		srv, _ := newFakeCreateServer(t, []fakeResponse{conflict, ok(running)}, []fakeResponse{ok(finished)})
+		client := newTestProjectsClient(t, srv.URL)
+		client.nextID = scriptedIDs(t, "my-project", "my-project-111111")
+		var buf bytes.Buffer
+		client.Logger = newLogger(&buf, slog.LevelDebug)
+
+		if _, err := client.Create(context.Background(), "my-project"); err != nil {
+			t.Fatalf("Create() = %v, want nil error", err)
+		}
+
+		msgs, lines := logs(t, &buf)
+		want := []string{
+			"creating project", "project ID is already taken",
+			"creating project", "polling operation", "operation done", "created project",
+		}
+		if !slices.Equal(msgs, want) {
+			t.Fatalf("log messages = %q, want %q", msgs, want)
+		}
+		if got := lines[0]["project_id"]; got != "my-project" || lines[0]["attempt"] != float64(1) {
+			t.Errorf("first attempt logged project_id %v, attempt %v, want my-project and 1", got, lines[0]["attempt"])
+		}
+		last := lines[len(lines)-1]
+		if last["project_id"] != "my-project-111111" || last["attempt"] != float64(2) {
+			t.Errorf("created project logged %v, want my-project-111111 on attempt 2", last)
+		}
+	})
+
+	t.Run("Deleteは要求と完了を出力する", func(t *testing.T) {
+		srv, _ := newFakeDeleteServer(t, ok(running), []fakeResponse{ok(done)})
+		client := newTestProjectsClient(t, srv.URL)
+		var buf bytes.Buffer
+		client.Logger = newLogger(&buf, slog.LevelDebug)
+
+		if err := client.Delete(context.Background(), "my-project"); err != nil {
+			t.Fatalf("Delete() = %v, want nil error", err)
+		}
+
+		msgs, lines := logs(t, &buf)
+		want := []string{"deleting project", "polling operation", "operation done", "deleted project"}
+		if !slices.Equal(msgs, want) {
+			t.Fatalf("log messages = %q, want %q", msgs, want)
+		}
+		if lines[0]["project_id"] != "my-project" {
+			t.Errorf("deleting project logged project_id %v, want my-project", lines[0]["project_id"])
+		}
+	})
+
+	t.Run("Infoレベルではポーリングを出力しない", func(t *testing.T) {
+		srv, _ := newFakeDeleteServer(t, ok(running), []fakeResponse{ok(done)})
+		client := newTestProjectsClient(t, srv.URL)
+		var buf bytes.Buffer
+		client.Logger = newLogger(&buf, slog.LevelInfo)
+
+		if err := client.Delete(context.Background(), "my-project"); err != nil {
+			t.Fatalf("Delete() = %v, want nil error", err)
+		}
+
+		msgs, _ := logs(t, &buf)
+		if want := []string{"deleting project", "deleted project"}; !slices.Equal(msgs, want) {
+			t.Errorf("log messages = %q, want %q", msgs, want)
+		}
+	})
 }
 
 func TestNextProjectID(t *testing.T) {

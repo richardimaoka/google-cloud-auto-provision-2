@@ -14,7 +14,7 @@ package gcp
 //	(set -a; . ./.env.integration; set +a; go test -tags integration -count=1 -v ./gcp -run Lifecycle -force)
 //
 // -count=1 stops go test from replaying a cached result instead of running it
-// again.
+// again. -v shows the client's full log, which the test prints to stderr.
 //
 // It shares the environment of the other integration tests, see
 // groups_integration_test.go. There is no way to run Get, Create or Delete on
@@ -26,6 +26,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -93,6 +94,11 @@ func TestProjectsClient_Lifecycle_Integration(t *testing.T) {
 	if !*force {
 		confirmLifecycle(t)
 	}
+
+	// Log everything the client logs, down to each poll, to stderr. A run
+	// against real resources can't be repeated with more logging after it fails,
+	// so the full log has to be there the first time. It shows with -v.
+	client.Logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// A valid project ID, and unique enough not to collide with earlier runs.
 	name := fmt.Sprintf("it-lifecycle-%d", time.Now().Unix())
