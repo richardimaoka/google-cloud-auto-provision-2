@@ -12,8 +12,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -116,8 +118,7 @@ func newTestIAMClient(t *testing.T, endpoint string) *IAMClient {
 	if err != nil {
 		t.Fatalf("NewIAMClient: %v", err)
 	}
-	// TODO: shorten the wait between retries, like pollInterval in
-	// newTestProjectsClient.
+	client.retryWait = time.Millisecond
 	return client
 }
 
@@ -444,32 +445,144 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 	})
 
 	// Conflicts and errors.
+	conflict := fakeIAMResponse{
+		status: http.StatusConflict,
+		body:   `{"error":{"code":409,"message":"There were concurrent policy changes.","status":"ABORTED"}}`,
+	}
+	viewerRead := func(etag string, viewers ...string) fakeIAMResponse {
+		return ok(&cloudresourcemanager.Policy{Version: 1, Etag: etag, Bindings: []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: viewers},
+		}})
+	}
 	t.Run("etag が競合したら読み直して update をやり直す", func(t *testing.T) {
 		// The first setIamPolicy answers 409 ABORTED. The client reads again, calls
 		// update again with the policy it read this time, and writes with the new
 		// etag. The second write works. update was called twice, on the first and
 		// on the second policy.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com"), viewerRead("etag-2", "user:alice@example.com", "user:bob@example.com")},
+			[]fakeIAMResponse{conflict, ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+
+		var viewersSeen []int
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			viewersSeen = append(viewersSeen, len(p.Bindings[0].Members))
+			p.Bindings = append(p.Bindings, Binding{Role: "roles/browser", Members: []string{"user:erin@example.com"}})
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+
+		if !slices.Equal(viewersSeen, []int{1, 2}) {
+			t.Errorf("update saw policies with %v viewers, want [1 2]", viewersSeen)
+		}
+		reqs := srv.SetRequests()
+		if len(reqs) != 2 {
+			t.Fatalf("got %d setIamPolicy requests, want 2", len(reqs))
+		}
+		if got := reqs[1].Policy; got.Etag != "etag-2" || len(got.Bindings[0].Members) != 2 {
+			t.Errorf("second write = %+v, want etag-2 and the 2 viewers of the second read", got)
+		}
 	})
 	t.Run("競合が続いたら上限で諦める", func(t *testing.T) {
 		// setIamPolicy answers 409 every time. The client stops at the limit of
 		// attempts, the error says so, and update was called that many times.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com"), viewerRead("etag-2", "user:alice@example.com"), viewerRead("etag-3", "user:alice@example.com")},
+			[]fakeIAMResponse{conflict, conflict, conflict})
+		client := newTestIAMClient(t, srv.URL)
+
+		calls := 0
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			calls++
+			p.Bindings = append(p.Bindings, Binding{Role: "roles/browser", Members: []string{"user:erin@example.com"}})
+			return nil
+		})
+
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) || gerr.Code != http.StatusConflict {
+			t.Errorf("updatePolicy() = %v, want an error that wraps the 409", err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "3 attempts") {
+			t.Errorf("updatePolicy() = %v, want an error that says 3 attempts", err)
+		}
+		if calls != 3 {
+			t.Errorf("update was called %d times, want 3", calls)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 3 {
+			t.Errorf("got %d setIamPolicy requests, want 3", len(reqs))
+		}
 	})
-	t.Run("再試行の間隔は増えていく", func(t *testing.T) {
-		// The waits the client asked for, recorded through the replaced wait, get
-		// longer with each conflict. The test does not sleep.
-		t.Skip("not implemented")
+	t.Run("再試行の前に待つ", func(t *testing.T) {
+		// After each conflict the client waits before it reads again. The wait is
+		// the same each time. The test checks the total from below, so it can't fail
+		// for being slow.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com"), viewerRead("etag-2", "user:alice@example.com"), viewerRead("etag-3", "user:alice@example.com")},
+			[]fakeIAMResponse{conflict, conflict, ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+		client.retryWait = 30 * time.Millisecond
+
+		start := time.Now()
+		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+		if elapsed := time.Since(start); elapsed < 2*client.retryWait {
+			t.Errorf("took %v for 2 retries, want at least %v", elapsed, 2*client.retryWait)
+		}
 	})
 	t.Run("待っている間にコンテキストがキャンセルされたら戻る", func(t *testing.T) {
 		// Cancelled during a wait, the client returns at once with the context
 		// error, and does not read or write again.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com")},
+			[]fakeIAMResponse{conflict})
+		client := newTestIAMClient(t, srv.URL)
+		client.retryWait = time.Hour
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			for len(srv.SetRequests()) == 0 {
+				time.Sleep(time.Millisecond)
+			}
+			cancel()
+		}()
+
+		start := time.Now()
+		err := client.updatePolicy(ctx, "my-project", addViewer)
+
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("updatePolicy() = %v, want context.Canceled", err)
+		}
+		if elapsed := time.Since(start); elapsed > 30*time.Second {
+			t.Errorf("took %v, want it to return at once", elapsed)
+		}
+		if n := len(srv.GetRequests()); n != 1 {
+			t.Errorf("got %d getIamPolicy requests, want 1", n)
+		}
+		if n := len(srv.SetRequests()); n != 1 {
+			t.Errorf("got %d setIamPolicy requests, want 1", n)
+		}
 	})
 	t.Run("競合以外のエラーは再試行しない", func(t *testing.T) {
 		// setIamPolicy answers 403. The error comes back at once, wrapping the
 		// *googleapi.Error, and there is no second read.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com")},
+			[]fakeIAMResponse{{status: http.StatusForbidden, body: `{"error":{"code":403,"status":"PERMISSION_DENIED"}}`}})
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.updatePolicy(context.Background(), "my-project", addViewer)
+
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) || gerr.Code != http.StatusForbidden {
+			t.Errorf("updatePolicy() = %v, want an error that wraps the 403", err)
+		}
+		if n := len(srv.GetRequests()); n != 1 {
+			t.Errorf("got %d getIamPolicy requests, want 1", n)
+		}
 	})
 	t.Run("update がエラーを返したら書き込まない", func(t *testing.T) {
 		// The error of update comes back, and the fake has seen no setIamPolicy.

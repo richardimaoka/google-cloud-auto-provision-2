@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -15,6 +18,15 @@ import (
 // 3 is the one that has conditions, and a policy read with a lower version has
 // them left out.
 const policyVersion = 3
+
+const (
+	// maxUpdateAttempts is how many times updatePolicy reads and writes a policy
+	// before it gives up on conflicts: the first attempt plus 2 retries.
+	maxUpdateAttempts = 3
+	// defaultRetryWait is how long updatePolicy waits before it reads the policy
+	// again after a conflict.
+	defaultRetryWait = 200 * time.Millisecond
+)
 
 var (
 	// ErrBindingNotFound is returned by RemoveBinding when the member does not have
@@ -62,7 +74,8 @@ type Expr struct {
 // --condition=None, and a write sends the conditional bindings back as they were
 // read, so it does not change who has access.
 type IAMClient struct {
-	service *cloudresourcemanager.Service
+	service   *cloudresourcemanager.Service
+	retryWait time.Duration
 }
 
 func NewIAMClient(ctx context.Context, opts ...option.ClientOption) (*IAMClient, error) {
@@ -70,7 +83,7 @@ func NewIAMClient(ctx context.Context, opts ...option.ClientOption) (*IAMClient,
 	if err != nil {
 		return nil, fmt.Errorf("new cloudresourcemanager service: %w", err)
 	}
-	return &IAMClient{service: svc}, nil
+	return &IAMClient{service: svc, retryWait: defaultRetryWait}, nil
 }
 
 func policyFromAPI(p *cloudresourcemanager.Policy) *Policy {
@@ -169,8 +182,8 @@ func (c *IAMClient) RemoveBinding(ctx context.Context, projectID, role, member s
 
 // updatePolicy is the read-modify-write operation under AddBinding and
 // RemoveBinding. It reads the policy, calls update, and writes the result with the
-// etag it read and version 3. On a conflict (409) it reads again and calls update
-// again, up to a limit, waiting longer each time. It writes nothing if update left
+// etag it read and version 3. On a conflict (409) it waits, reads again and calls
+// update again, up to maxUpdateAttempts attempts. It writes nothing if update left
 // the policy equal to the one it read.
 //
 // It refuses a change that leaves a project with no owner, when the policy it read
@@ -179,8 +192,28 @@ func (c *IAMClient) RemoveBinding(ctx context.Context, projectID, role, member s
 // one, as it grants nothing. A policy that had no owner to begin with, for example
 // because the owners come from the organization, is written as it is.
 func (c *IAMClient) updatePolicy(ctx context.Context, projectID string, update func(*Policy) error) error {
-	resource := "projects/" + projectID
+	var err error
+	for attempt := 1; attempt <= maxUpdateAttempts; attempt++ {
+		if attempt > 1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(c.retryWait):
+			}
+		}
 
+		err = c.tryUpdatePolicy(ctx, "projects/"+projectID, update)
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) || gerr.Code != http.StatusConflict {
+			return err
+		}
+	}
+	return fmt.Errorf("update iam policy: gave up after %d attempts: %w", maxUpdateAttempts, err)
+}
+
+// tryUpdatePolicy is one attempt of updatePolicy: it reads, calls update and
+// writes once.
+func (c *IAMClient) tryUpdatePolicy(ctx context.Context, resource string, update func(*Policy) error) error {
 	current, err := c.getPolicy(ctx, resource)
 	if err != nil {
 		return err
