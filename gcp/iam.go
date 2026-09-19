@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
 	"google.golang.org/api/option"
@@ -86,6 +87,19 @@ func policyFromAPI(p *cloudresourcemanager.Policy) *Policy {
 		policy.Bindings = append(policy.Bindings, binding)
 	}
 	return policy
+}
+
+// ownerRole is the role of a project's owners.
+const ownerRole = "roles/owner"
+
+// hasOwner reports whether the policy has an owner: a member of an unconditional
+// roles/owner binding. A deleted member is left in the binding and grants
+// nothing, so it is not one.
+func (p *Policy) hasOwner() bool {
+	return slices.ContainsFunc(p.Bindings, func(b Binding) bool {
+		return b.Role == ownerRole && b.Condition == nil &&
+			slices.ContainsFunc(b.Members, func(m string) bool { return !strings.HasPrefix(m, "deleted:") })
+	})
 }
 
 // equal reports whether two policies have the same bindings, in the same order.
@@ -172,12 +186,16 @@ func (c *IAMClient) updatePolicy(ctx context.Context, projectID string, update f
 		return err
 	}
 	// update gets its own copy, so the one read is left to compare with.
+	original := policyFromAPI(current)
 	policy := policyFromAPI(current)
 	if err := update(policy); err != nil {
 		return err
 	}
-	if policy.equal(policyFromAPI(current)) {
+	if policy.equal(original) {
 		return nil
+	}
+	if original.hasOwner() && !policy.hasOwner() {
+		return ErrLastOwner
 	}
 
 	// A Policy does not hold everything the API's has, like the audit configs, so

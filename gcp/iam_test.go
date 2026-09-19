@@ -332,31 +332,115 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 	})
 
 	// The guard.
+	ownerRead := func(owners ...string) fakeIAMResponse {
+		return ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+			{Role: "roles/owner", Members: owners},
+			{Role: "roles/viewer", Members: []string{"user:viewer@example.com"}},
+		}})
+	}
 	t.Run("最後の owner を外す変更は、書き込まずにエラーにする", func(t *testing.T) {
 		// The policy read has one owner, and update removes it (or the whole
 		// binding). The error is ErrLastOwner. The fake has seen no setIamPolicy,
 		// update was called once, and nothing is retried.
-		t.Skip("not implemented")
+		removals := map[string]func(*Policy){
+			"バインディングごと外す": func(p *Policy) { p.Bindings = slices.Delete(p.Bindings, 0, 1) },
+			"メンバーを空にする":   func(p *Policy) { p.Bindings[0].Members = nil },
+		}
+		for name, remove := range removals {
+			t.Run(name, func(t *testing.T) {
+				srv := newFakeIAMServer(t, []fakeIAMResponse{ownerRead("user:alice@example.com")}, nil)
+				client := newTestIAMClient(t, srv.URL)
+
+				calls := 0
+				err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+					calls++
+					remove(p)
+					return nil
+				})
+				if !errors.Is(err, ErrLastOwner) {
+					t.Errorf("updatePolicy() = %v, want ErrLastOwner", err)
+				}
+				if calls != 1 {
+					t.Errorf("update was called %d times, want 1", calls)
+				}
+				if reqs := srv.SetRequests(); len(reqs) != 0 {
+					t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+				}
+				if reqs := srv.GetRequests(); len(reqs) != 1 {
+					t.Errorf("got %d getIamPolicy requests, want 1", len(reqs))
+				}
+			})
+		}
 	})
 	t.Run("owner が複数いて、一部を外す変更は書き込む", func(t *testing.T) {
 		// Two owners, and update removes one. The write goes out.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ownerRead("user:alice@example.com", "user:bob@example.com")},
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			p.Bindings[0].Members = []string{"user:alice@example.com"}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 1 {
+			t.Errorf("got %d setIamPolicy requests, want 1", len(reqs))
+		}
 	})
 	t.Run("owner を別のメンバーに入れ替える変更は書き込む", func(t *testing.T) {
 		// update removes the only owner and adds another in the same call. The
 		// result still has an owner, so the write goes out.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ownerRead("user:alice@example.com")},
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			p.Bindings[0].Members = []string{"user:bob@example.com"}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 1 {
+			t.Errorf("got %d setIamPolicy requests, want 1", len(reqs))
+		}
 	})
 	t.Run("もともと owner がいないポリシーは、そのまま書き込む", func(t *testing.T) {
 		// The policy read has no owner, and update changes something else. The
 		// guard does not apply, and the write goes out.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{})})
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
+			t.Fatalf("updatePolicy() = %v, want nil error", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 1 {
+			t.Errorf("got %d setIamPolicy requests, want 1", len(reqs))
+		}
 	})
 	t.Run("deleted: のメンバーは owner に数えない", func(t *testing.T) {
-		// The only member of roles/owner is "deleted:user:...", and update
-		// removes the other owner: the result has no owner that counts, so it is
-		// ErrLastOwner. To be decided, together with what counts as an owner.
-		t.Skip("not implemented")
+		// A deleted member is left in roles/owner and grants nothing. update removes
+		// the other owner, so no owner that counts is left, and it is ErrLastOwner.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ownerRead("user:alice@example.com", "deleted:user:old@example.com?uid=123456789")}, nil)
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
+			p.Bindings[0].Members = []string{"deleted:user:old@example.com?uid=123456789"}
+			return nil
+		})
+		if !errors.Is(err, ErrLastOwner) {
+			t.Errorf("updatePolicy() = %v, want ErrLastOwner", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 0 {
+			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+		}
 	})
 
 	// Conflicts and errors.
