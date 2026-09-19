@@ -3,9 +3,16 @@ package gcp
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
 	"google.golang.org/api/option"
 )
+
+// policyVersion is the version of the policy format the client asks for. Version
+// 3 is the one that has conditions, and a policy read with a lower version has
+// them left out.
+const policyVersion = 3
 
 var (
 	// ErrBindingNotFound is returned by RemoveBinding when the member does not have
@@ -52,16 +59,45 @@ type Expr struct {
 // RemoveBinding work on the unconditional bindings only, like gcloud does with
 // --condition=None, and a write sends the conditional bindings back as they were
 // read, so it does not change who has access.
-type IAMClient struct{}
+type IAMClient struct {
+	service *cloudresourcemanager.Service
+}
 
 func NewIAMClient(ctx context.Context, opts ...option.ClientOption) (*IAMClient, error) {
-	return nil, nil
+	svc, err := cloudresourcemanager.NewService(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("new cloudresourcemanager service: %w", err)
+	}
+	return &IAMClient{service: svc}, nil
+}
+
+func policyFromAPI(p *cloudresourcemanager.Policy) *Policy {
+	policy := &Policy{Version: p.Version}
+	for _, b := range p.Bindings {
+		binding := Binding{Role: b.Role, Members: b.Members}
+		if b.Condition != nil {
+			binding.Condition = &Expr{
+				Title:       b.Condition.Title,
+				Description: b.Condition.Description,
+				Expression:  b.Condition.Expression,
+			}
+		}
+		policy.Bindings = append(policy.Bindings, binding)
+	}
+	return policy
 }
 
 // GetPolicy returns the IAM policy of a project, given its ID or its number. It
 // asks for policy version 3, so a condition is never left out.
 func (c *IAMClient) GetPolicy(ctx context.Context, projectID string) (*Policy, error) {
-	return nil, nil
+	req := &cloudresourcemanager.GetIamPolicyRequest{
+		Options: &cloudresourcemanager.GetPolicyOptions{RequestedPolicyVersion: policyVersion},
+	}
+	p, err := c.service.Projects.GetIamPolicy("projects/"+projectID, req).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get iam policy: %w", err)
+	}
+	return policyFromAPI(p), nil
 }
 
 // AddBinding grants role to member on a project, like gcloud's

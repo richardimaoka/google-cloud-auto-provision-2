@@ -2,6 +2,9 @@ package gcp
 
 import (
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -26,6 +29,15 @@ type fakeIAMResponse struct {
 	policy *cloudresourcemanager.Policy
 }
 
+func (r fakeIAMResponse) write(w http.ResponseWriter) {
+	if r.status != http.StatusOK {
+		w.WriteHeader(r.status)
+		io.WriteString(w, r.body)
+		return
+	}
+	json.NewEncoder(w).Encode(r.policy)
+}
+
 // iamRequests records what the fake server received.
 type iamRequests struct {
 	gets []string // bodies of the getIamPolicy requests
@@ -37,8 +49,34 @@ type iamRequests struct {
 func newFakeIAMServer(t *testing.T, gets, sets []fakeIAMResponse) (*httptest.Server, *iamRequests) {
 	t.Helper()
 
-	// TODO
-	return nil, nil
+	got := &iamRequests{}
+	handler := func(name string, script []fakeIAMResponse, bodies *[]string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("read %s request: %v", name, err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			*bodies = append(*bodies, string(body))
+
+			i := len(*bodies) - 1
+			if i >= len(script) {
+				t.Errorf("unexpected %s request %d, only %d scripted", name, i+1, len(script))
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			script[i].write(w)
+		}
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v3/projects/my-project:getIamPolicy", handler("getIamPolicy", gets, &got.gets))
+	mux.HandleFunc("POST /v3/projects/my-project:setIamPolicy", handler("setIamPolicy", sets, &got.sets))
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, got
 }
 
 func newTestIAMClient(t *testing.T, endpoint string) *IAMClient {
@@ -55,10 +93,28 @@ func newTestIAMClient(t *testing.T, endpoint string) *IAMClient {
 
 func TestIAMClient_GetPolicy(t *testing.T) {
 	t.Run("バージョン3を要求する", func(t *testing.T) {
-		// The method is POST, the path is /v3/projects/<id>:getIamPolicy, and the
-		// body is {"options":{"requestedPolicyVersion":3}}, so a condition is never
-		// left out. The response can be as small as possible.
-		t.Skip("not implemented")
+		// The fake serves POST /v3/projects/my-project:getIamPolicy only, so the
+		// method and the path are checked by it answering. The response is as small
+		// as possible.
+		srv, got := newFakeIAMServer(t, []fakeIAMResponse{
+			{status: http.StatusOK, policy: &cloudresourcemanager.Policy{Version: 1}},
+		}, nil)
+		client := newTestIAMClient(t, srv.URL)
+
+		if _, err := client.GetPolicy(context.Background(), "my-project"); err != nil {
+			t.Fatalf("GetPolicy() = %v, want nil error", err)
+		}
+
+		if len(got.gets) != 1 {
+			t.Fatalf("got %d getIamPolicy requests, want 1", len(got.gets))
+		}
+		var req cloudresourcemanager.GetIamPolicyRequest
+		if err := json.Unmarshal([]byte(got.gets[0]), &req); err != nil {
+			t.Fatalf("decode request %q: %v", got.gets[0], err)
+		}
+		if req.Options == nil || req.Options.RequestedPolicyVersion != 3 {
+			t.Errorf("request options = %+v, want requestedPolicyVersion 3", req.Options)
+		}
 	})
 }
 
