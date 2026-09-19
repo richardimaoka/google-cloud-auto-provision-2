@@ -249,9 +249,9 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("request policy = %+v, want version 3", p)
 		}
 	})
-	t.Run("書き込みは bindings と etag だけに限る", func(t *testing.T) {
-		// A Policy does not hold the audit configs, so a write that did not name its
-		// fields could remove them from the project.
+	t.Run("書き込みの updateMask は bindings と etag だけ", func(t *testing.T) {
+		// Fields outside the mask, like the audit configs that a Policy does not hold,
+		// are left alone.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
 			[]fakeIAMResponse{written}) // the write works (answer ignored)
