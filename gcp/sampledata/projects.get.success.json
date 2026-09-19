@@ -1,0 +1,10 @@
+{
+  "name": "projects/123456789012",
+  "parent": "organizations/100000000000",
+  "projectId": "my-project-123",
+  "state": "ACTIVE",
+  "displayName": "my-project-123",
+  "createTime": "2026-09-19T07:42:24.644Z",
+  "updateTime": "2026-09-19T08:10:03.221010Z",
+  "etag": "W/\"0123456789abcdef\""
+}

@@ -1,0 +1,20 @@
+{
+  "error": {
+    "code": 403,
+    "message": "Permission 'resourcemanager.projects.get' denied on resource '//cloudresourcemanager.googleapis.com/projects/987654321098' (or it may not exist). Remediate access with this Troubleshooter URL or share it with your administrator - https://console.cloud.google.com/iam-admin/troubleshooter/summary;errorId=CiQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDASFXByb2plY3RzLzk4NzY1NDMyMTA5OA%3D%3D .",
+    "status": "PERMISSION_DENIED",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "IAM_PERMISSION_DENIED",
+        "domain": "cloudresourcemanager.googleapis.com",
+        "metadata": {
+          "troubleshooter_url": "https://console.cloud.google.com/iam-admin/troubleshooter/summary;errorId=CiQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDASFXByb2plY3RzLzk4NzY1NDMyMTA5OA%3D%3D",
+          "error_info_id": "CiQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDASFXByb2plY3RzLzk4NzY1NDMyMTA5OA==",
+          "resource": "projects/987654321098",
+          "permission": "resourcemanager.projects.get"
+        }
+      }
+    ]
+  }
+}

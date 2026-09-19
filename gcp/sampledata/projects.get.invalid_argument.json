@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": 400,
+    "message": "Fail to resolve resource 'projects/ああああ'",
+    "status": "INVALID_ARGUMENT"
+  }
+}
