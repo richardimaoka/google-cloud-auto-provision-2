@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
 	"google.golang.org/api/option"
@@ -132,6 +133,48 @@ func TestProjectsClient_Get(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fakeResponse is one scripted answer of the fake server: an error status, or
+// status 200 with op as the body.
+type fakeResponse struct {
+	status int
+	op     *cloudresourcemanager.Operation
+}
+
+func (r fakeResponse) write(w http.ResponseWriter) {
+	if r.status != http.StatusOK {
+		w.WriteHeader(r.status)
+		return
+	}
+	json.NewEncoder(w).Encode(r.op)
+}
+
+// newFakeDeleteServer fakes DELETE /v3/projects/my-project and the polling of
+// the operation it starts. The delete call answers del, and each poll of
+// GET /v3/operations/... answers the next entry of polls. It also returns a
+// pointer to the number of polls received.
+func newFakeDeleteServer(t *testing.T, del fakeResponse, polls []fakeResponse) (*httptest.Server, *int) {
+	t.Helper()
+
+	pollCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("DELETE /v3/projects/my-project", func(w http.ResponseWriter, r *http.Request) {
+		del.write(w)
+	})
+	mux.HandleFunc("GET /v3/operations/", func(w http.ResponseWriter, r *http.Request) {
+		if pollCount >= len(polls) {
+			t.Errorf("unexpected poll %d, only %d scripted", pollCount+1, len(polls))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		polls[pollCount].write(w)
+		pollCount++
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, &pollCount
 }
 
 func TestProjectsClient_Create(t *testing.T) {
@@ -266,14 +309,86 @@ func TestNextProjectID(t *testing.T) {
 }
 
 func TestProjectsClient_Delete(t *testing.T) {
-	t.Skip("not implemented")
+	running := &cloudresourcemanager.Operation{Name: "operations/op-1"}
+	done := &cloudresourcemanager.Operation{Name: "operations/op-1", Done: true}
+	failed := &cloudresourcemanager.Operation{
+		Name:  "operations/op-1",
+		Done:  true,
+		Error: &cloudresourcemanager.Status{Code: 9, Message: "project cannot be deleted"},
+	}
+	ok := func(op *cloudresourcemanager.Operation) fakeResponse {
+		return fakeResponse{status: http.StatusOK, op: op}
+	}
+	status := func(code int) fakeResponse { return fakeResponse{status: code} }
 
-	// - オペレーションが最初のレスポンスで完了している: nil を返す
-	// - オペレーションが数回のポーリング後に完了する: ポーリングが繰り返される
-	// - 存在しないプロジェクト: "delete project" を含むエラー
-	// - 権限不足: "delete project" を含むエラー
-	// - オペレーションがエラーで完了する: エラーを返す
-	// - ポーリング中に 500: ハングせずエラーを返す
+	cases := []struct {
+		name      string
+		del       fakeResponse
+		polls     []fakeResponse
+		wantErr   string // substring of the expected error; empty means success
+		wantPolls int
+	}{
+		{
+			name: "オペレーションが最初のレスポンスで完了している",
+			del:  ok(done),
+		},
+		{
+			name:      "オペレーションが数回のポーリング後に完了する",
+			del:       ok(running),
+			polls:     []fakeResponse{ok(running), ok(running), ok(done)},
+			wantPolls: 3,
+		},
+		{
+			name:    "存在しないプロジェクト",
+			del:     status(http.StatusNotFound),
+			wantErr: "delete project",
+		},
+		{
+			name:    "権限不足",
+			del:     status(http.StatusForbidden),
+			wantErr: "delete project",
+		},
+		{
+			name:      "オペレーションがエラーで完了する",
+			del:       ok(running),
+			polls:     []fakeResponse{ok(failed)},
+			wantErr:   "project cannot be deleted",
+			wantPolls: 1,
+		},
+		{
+			name:      "ポーリング中に 500",
+			del:       ok(running),
+			polls:     []fakeResponse{ok(running), status(http.StatusInternalServerError)},
+			wantErr:   "delete project",
+			wantPolls: 2,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, polls := newFakeDeleteServer(t, c.del, c.polls)
+			client, err := NewProjectsClient(context.Background(), "", option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+			if err != nil {
+				t.Fatalf("NewProjectsClient: %v", err)
+			}
+			client.pollInterval = time.Millisecond
+
+			err = client.Delete(context.Background(), "my-project")
+			if c.wantErr != "" {
+				if err == nil {
+					t.Fatal("Delete() = nil error, want error")
+				}
+				if !strings.Contains(err.Error(), c.wantErr) {
+					t.Errorf("Delete() error = %q, want it to contain %q", err, c.wantErr)
+				}
+			} else if err != nil {
+				t.Fatalf("Delete() = %v, want nil error", err)
+			}
+			if *polls != c.wantPolls {
+				t.Errorf("polled %d times, want %d", *polls, c.wantPolls)
+			}
+		})
+	}
 }
 
 // Integration tests (would go in projects_integration_test.go behind the

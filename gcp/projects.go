@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"time"
 
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
 	"google.golang.org/api/option"
@@ -16,6 +17,9 @@ const (
 	// suffixDigits is the length of the random suffix, before it is shortened to
 	// fit maxProjectIDLen.
 	suffixDigits = 6
+	// defaultPollInterval is how long to wait between polls of a long-running
+	// operation. Creating a project usually takes a few seconds.
+	defaultPollInterval = time.Second
 )
 
 // Project represents a Google Cloud project.
@@ -33,8 +37,9 @@ type Project struct {
 
 // ProjectsClient is a client for Google Cloud projects.
 type ProjectsClient struct {
-	service *cloudresourcemanager.Service
-	parent  string
+	service      *cloudresourcemanager.Service
+	parent       string
+	pollInterval time.Duration
 }
 
 // NewProjectsClient returns a client whose Create puts new projects under
@@ -45,7 +50,7 @@ func NewProjectsClient(ctx context.Context, parent string, opts ...option.Client
 	if err != nil {
 		return nil, fmt.Errorf("new cloudresourcemanager service: %w", err)
 	}
-	return &ProjectsClient{service: svc, parent: parent}, nil
+	return &ProjectsClient{service: svc, parent: parent, pollInterval: defaultPollInterval}, nil
 }
 
 func projectFromAPI(p *cloudresourcemanager.Project) *Project {
@@ -120,5 +125,35 @@ func nextProjectID(name string, tried []string) (string, bool) {
 // Delete marks the project for deletion, which moves it to the DELETE_REQUESTED
 // state. It blocks until the long-running delete operation finishes.
 func (c *ProjectsClient) Delete(ctx context.Context, id string) error {
+	op, err := c.service.Projects.Delete("projects/" + id).Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("delete project: %w", err)
+	}
+	if _, err := c.waitOperation(ctx, op); err != nil {
+		return fmt.Errorf("delete project: %w", err)
+	}
 	return nil
+}
+
+// waitOperation polls op until it is done and returns the finished operation.
+// It returns an error if a poll fails, if ctx ends first, or if the operation
+// finishes with an error.
+func (c *ProjectsClient) waitOperation(ctx context.Context, op *cloudresourcemanager.Operation) (*cloudresourcemanager.Operation, error) {
+	for !op.Done {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(c.pollInterval):
+		}
+
+		var err error
+		op, err = c.service.Operations.Get(op.Name).Context(ctx).Do()
+		if err != nil {
+			return nil, fmt.Errorf("poll operation: %w", err)
+		}
+	}
+	if op.Error != nil {
+		return nil, fmt.Errorf("operation failed: %s (code %d)", op.Error.Message, op.Error.Code)
+	}
+	return op, nil
 }
