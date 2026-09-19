@@ -651,13 +651,3 @@ func TestProjectsClient_Delete(t *testing.T) {
 		})
 	}
 }
-
-// Integration tests (would go in projects_integration_test.go behind the
-// "integration" build tag). Create and Delete change a real organization. Each
-// run leaves a project in DELETE_REQUESTED, and the ID of a deleted project can
-// never be used again, so these are still undecided.
-//
-// - (未決定) ライフサイクル: ランダムな名前で Create → 返された ID で Get して
-//   ACTIVE を確認 → Delete → Get で DELETE_REQUESTED を確認。失敗時も
-//   t.Cleanup で削除する。GCP_TEST_PARENT が未設定なら失敗させる。
-// - 存在しないランダムな ID で Get: エラーになる(読み取りのみ)。
