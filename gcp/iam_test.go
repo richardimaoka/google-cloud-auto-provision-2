@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"sync"
 	"testing"
 
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
@@ -38,45 +40,70 @@ func (r fakeIAMResponse) write(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(r.policy)
 }
 
-// iamRequests records what the fake server received.
-type iamRequests struct {
-	gets []string // bodies of the getIamPolicy requests
-	sets []string // bodies of the setIamPolicy requests
+// fakeIAMServer fakes POST /v3/projects/my-project:getIamPolicy and
+// :setIamPolicy, and records what it receives. Any other method or path is not
+// served, so a client that uses one fails.
+type fakeIAMServer struct {
+	*httptest.Server
+
+	mu      sync.Mutex
+	getReqs []cloudresourcemanager.GetIamPolicyRequest
+	setReqs []cloudresourcemanager.SetIamPolicyRequest
 }
 
-// newFakeIAMServer fakes POST /v3/projects/my-project:getIamPolicy and
-// :setIamPolicy. Each request answers the next entry of gets or of sets.
-func newFakeIAMServer(t *testing.T, gets, sets []fakeIAMResponse) (*httptest.Server, *iamRequests) {
+// newFakeIAMServer starts a fakeIAMServer. Each getIamPolicy request answers the
+// next entry of getResponses, and each setIamPolicy request the next entry of
+// setResponses.
+func newFakeIAMServer(t *testing.T, getResponses, setResponses []fakeIAMResponse) *fakeIAMServer {
 	t.Helper()
 
-	got := &iamRequests{}
-	handler := func(name string, script []fakeIAMResponse, bodies *[]string) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				t.Errorf("read %s request: %v", name, err)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			*bodies = append(*bodies, string(body))
-
-			i := len(*bodies) - 1
-			if i >= len(script) {
-				t.Errorf("unexpected %s request %d, only %d scripted", name, i+1, len(script))
-				w.WriteHeader(http.StatusInternalServerError)
-				return
-			}
-			script[i].write(w)
-		}
-	}
-
+	s := &fakeIAMServer{}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v3/projects/my-project:getIamPolicy", handler("getIamPolicy", gets, &got.gets))
-	mux.HandleFunc("POST /v3/projects/my-project:setIamPolicy", handler("setIamPolicy", sets, &got.sets))
+	mux.HandleFunc("POST /v3/projects/my-project:getIamPolicy", newIAMHandler(t, &s.mu, "getIamPolicy", getResponses, &s.getReqs))
+	mux.HandleFunc("POST /v3/projects/my-project:setIamPolicy", newIAMHandler(t, &s.mu, "setIamPolicy", setResponses, &s.setReqs))
 
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv, got
+	s.Server = httptest.NewServer(mux)
+	t.Cleanup(s.Close)
+	return s
+}
+
+// GetRequests returns the getIamPolicy requests received so far, oldest first.
+func (s *fakeIAMServer) GetRequests() []cloudresourcemanager.GetIamPolicyRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.getReqs)
+}
+
+// SetRequests returns the setIamPolicy requests received so far, oldest first.
+func (s *fakeIAMServer) SetRequests() []cloudresourcemanager.SetIamPolicyRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.setReqs)
+}
+
+// newIAMHandler records the body of each request in requests, and answers it with
+// the next entry of responses. mu guards requests.
+func newIAMHandler[T any](t *testing.T, mu *sync.Mutex, name string, responses []fakeIAMResponse, requests *[]T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req T
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode %s request: %v", name, err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		mu.Lock()
+		*requests = append(*requests, req)
+		i := len(*requests) - 1
+		mu.Unlock()
+
+		if i >= len(responses) {
+			t.Errorf("unexpected %s request %d, only %d scripted", name, i+1, len(responses))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		responses[i].write(w)
+	}
 }
 
 func newTestIAMClient(t *testing.T, endpoint string) *IAMClient {
@@ -93,11 +120,9 @@ func newTestIAMClient(t *testing.T, endpoint string) *IAMClient {
 
 func TestIAMClient_GetPolicy(t *testing.T) {
 	t.Run("バージョン3を要求する", func(t *testing.T) {
-		// The fake serves POST /v3/projects/my-project:getIamPolicy only, so the
-		// method and the path are checked by it answering. The response is as small
-		// as possible.
-		srv, got := newFakeIAMServer(t, []fakeIAMResponse{
-			{status: http.StatusOK, policy: &cloudresourcemanager.Policy{Version: 1}},
+		// Without version 3, the API leaves the conditions out of the policy.
+		srv := newFakeIAMServer(t, []fakeIAMResponse{
+			{status: http.StatusOK, policy: &cloudresourcemanager.Policy{}},
 		}, nil)
 		client := newTestIAMClient(t, srv.URL)
 
@@ -105,15 +130,12 @@ func TestIAMClient_GetPolicy(t *testing.T) {
 			t.Fatalf("GetPolicy() = %v, want nil error", err)
 		}
 
-		if len(got.gets) != 1 {
-			t.Fatalf("got %d getIamPolicy requests, want 1", len(got.gets))
+		reqs := srv.GetRequests()
+		if len(reqs) != 1 {
+			t.Fatalf("got %d getIamPolicy requests, want 1", len(reqs))
 		}
-		var req cloudresourcemanager.GetIamPolicyRequest
-		if err := json.Unmarshal([]byte(got.gets[0]), &req); err != nil {
-			t.Fatalf("decode request %q: %v", got.gets[0], err)
-		}
-		if req.Options == nil || req.Options.RequestedPolicyVersion != 3 {
-			t.Errorf("request options = %+v, want requestedPolicyVersion 3", req.Options)
+		if opts := reqs[0].Options; opts == nil || opts.RequestedPolicyVersion != 3 {
+			t.Errorf("request options = %+v, want requestedPolicyVersion 3", opts)
 		}
 	})
 }
