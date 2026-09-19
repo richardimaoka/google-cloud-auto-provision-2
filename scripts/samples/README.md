@@ -25,6 +25,16 @@ gcloud auth login            # once per account, see: gcloud auth list
 
 The script says who it calls as, so the response can be tied to that account.
 
+## After recording
+
+Replace the real identifiers, and write the sample into `gcp/sampledata`:
+
+```sh
+go run ./cmd/anonymize scripts/samples/out/projects.get.error.non_existent.json
+```
+
+Look at the result with `git diff`, and add the sample to the README of `gcp/sampledata`. See "Placeholders" there for what is replaced.
+
 ## Scripts
 
 | Script | Extra variable | Safe? |

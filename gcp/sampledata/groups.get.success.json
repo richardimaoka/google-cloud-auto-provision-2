@@ -8,7 +8,7 @@
       "id": "emergency-group@example.com"
     },
     {
-      "id": "emergency-group@example.com.test-google-a.com"
+      "id": "emergency-group-alias@example.com"
     }
   ],
   "parent": "customers/C0123abcd",

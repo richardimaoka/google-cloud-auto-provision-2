@@ -7,6 +7,24 @@ Files marked (TODO) have not been recorded yet.
 
 `success` is a normal response. `error` is an error response, or an operation that finished with an `error`.
 
+## Placeholders
+
+A recorded response holds real identifiers. `go run ./cmd/anonymize scripts/samples/out/<name>.json` replaces them and writes the file here. It replaces:
+
+| Real value | Placeholder |
+|---|---|
+| Project number in a normal response | `projects/123456789012`, then `234567890123`, `345678901234` for more |
+| Project number in an error response (a project the caller cannot use) | `projects/987654321098`, then `876543210987`, `765432109876` |
+| Organization | `organizations/100000000000`, then `200000000000`, `300000000000` |
+| Project ID (`projectId`, and a violation's `subject`), everywhere it appears | `my-project-123`, then `my-project-456`, `my-project-789` |
+| Number of an operation | `operations/dp.1234567890123456789` and the like |
+| `etag` | `W/"0123456789abcdef"` |
+| Error ID (base64, holds a request UUID and the resource) | UUID `00000000-0000-0000-0000-000000000000`, and the resource replaced as above |
+
+The same real value gets the same placeholder within a file. Times, and the names of projects that don't exist (`this-does-not-exist-…`), stay as they are. The tool stops, and writes nothing, if an email address that is not `@example.com` is left, or an error ID has a layout it doesn't know.
+
+The groups samples were made by hand: `example.com` addresses, `groups/0123456789abcde`, `customers/C0123abcd`. The tool does not handle them.
+
 ## Method: groups.get
 
 ```
