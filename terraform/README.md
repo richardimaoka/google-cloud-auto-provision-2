@@ -56,12 +56,5 @@ project in the Cloud Console.
 
 ## Not managed by Terraform
 
-Terraform can't create an OAuth client for a regular web app, so do this by
-hand in the Cloud Console under APIs & Services, in the project:
-
-1. **OAuth consent screen:** configure it and add the users allowed to sign in.
-2. **Credentials:** create an OAuth client ID of type "Web application" and add
-   the redirect URI from `OAUTH_REDIRECT_URL` (for example
-   `http://localhost:8080/oauth2/callback`).
-3. Put the client ID and secret in `.env` as `OAUTH_CLIENT_ID` and
-   `OAUTH_CLIENT_SECRET`.
+Terraform can't create an OAuth client for a regular web app. Set it up by hand
+in the Cloud Console: see [../docs/oauth-client.md](../webapp/oauth-client.md).
