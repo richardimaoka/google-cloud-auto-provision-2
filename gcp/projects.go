@@ -2,9 +2,20 @@ package gcp
 
 import (
 	"context"
+	"fmt"
+	"math/rand/v2"
+	"slices"
 
 	cloudresourcemanager "google.golang.org/api/cloudresourcemanager/v3"
 	"google.golang.org/api/option"
+)
+
+const (
+	// maxProjectIDLen is the longest project ID the API accepts.
+	maxProjectIDLen = 30
+	// suffixDigits is the length of the random suffix, before it is shortened to
+	// fit maxProjectIDLen.
+	suffixDigits = 6
 )
 
 // Project represents a Google Cloud project.
@@ -62,6 +73,30 @@ func (c *ProjectsClient) Create(ctx context.Context, name string) (*Project, err
 // characters, and never equal to an ID in tried. It returns false when there is
 // no later candidate, which is the case when not even a one-digit suffix fits.
 func nextProjectID(name string, tried []string) (string, bool) {
+	if len(tried) == 0 {
+		return name, true
+	}
+
+	// The suffix needs a hyphen and at least one digit.
+	digits := min(suffixDigits, maxProjectIDLen-len(name)-1)
+	if digits < 1 {
+		return "", false
+	}
+
+	// Start at a random suffix and move on only if it was already tried, so a
+	// short suffix with few values left still finds the free ones, and the loop
+	// ends once every value has been tried.
+	limit := 1
+	for range digits {
+		limit *= 10
+	}
+	start := rand.IntN(limit)
+	for i := range limit {
+		id := fmt.Sprintf("%s-%0*d", name, digits, (start+i)%limit)
+		if !slices.Contains(tried, id) {
+			return id, true
+		}
+	}
 	return "", false
 }
 
