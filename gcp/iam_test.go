@@ -327,9 +327,9 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
 		}
 	})
-	t.Run("メンバーをその場で書き換える変更も書き込まれる", func(t *testing.T) {
-		// update changes an element of Members itself. The policy it is compared with
-		// must not change along with it, or the write would be left out.
+	t.Run("Members の要素を直接書き換えても、変更として書き込まれる", func(t *testing.T) {
+		// Without cloning, both policies share the Members array. A change in place
+		// would then alter the policy compared with too, and look like no change.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
 				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
