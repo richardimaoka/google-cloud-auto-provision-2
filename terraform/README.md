@@ -57,4 +57,4 @@ project in the Cloud Console.
 ## Not managed by Terraform
 
 Terraform can't create an OAuth client for a regular web app. Set it up by hand
-in the Cloud Console: see [../docs/oauth-client.md](../webapp/oauth-client.md).
+in the Cloud Console: see [../webapp/oauth-client.md](../webapp/oauth-client.md).
