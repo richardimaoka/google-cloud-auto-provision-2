@@ -74,3 +74,11 @@ https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/delete
 - [`project.delete.json`](./README.md) (TODO: the delete was accepted, and the operation is not done yet)
 - [`project.delete.not_found.json`](./README.md) (TODO: deleting a project that does not exist)
 - [`project.delete.already_deleted.json`](./README.md) (TODO: deleting a project that is already DELETE_REQUESTED)
+
+## To consider: refreshing the samples
+
+The shapes of the API responses may change over time. One way to keep the samples current would be a separate set of scripts that call the APIs and rewrite the sample files, with the identifiers replaced by placeholders.
+
+This is better as scripts than as part of the integration tests. An integration test that covers every sample would create many real projects, which use up the project quota, and their IDs can never be reused. The integration test (`projects_integration_test.go`) runs only the project lifecycle, once. Scripts could be run whenever needed, and each sample could be refreshed on its own.
+
+Not decided whether to build them.
