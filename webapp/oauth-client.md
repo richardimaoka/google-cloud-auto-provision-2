@@ -2,8 +2,8 @@
 
 Terraform can't create an OAuth client for a regular web app, so this is done
 by hand in the Cloud Console, in the project that `terraform/` manages. The
-result is three values for `.env`: `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET` and
-`OAUTH_REDIRECT_URL`.
+result is a `client_secret.json` file in the repository root, holding the client
+ID, secret and redirect URI.
 
 The Console menus have been reorganized under **Google Auth Platform**, and the
 names may change again. Open the project, then search for "Google Auth
@@ -47,33 +47,28 @@ Under **Clients**, choose **Create client** and fill in:
 
 - **Application type:** Web application
 - **Name:** anything, for example `auto-provision`
-- **Authorized redirect URIs:** the value of `OAUTH_REDIRECT_URL`, for example
-  `http://localhost:8080/oauth2/callback`
+- **Authorized redirect URIs:** for example `http://localhost:8080/oauth2/callback`
 
 The redirect URI must match exactly, including the port and path. The token
-helper only accepts a `localhost` or `127.0.0.1` redirect URL.
+helper uses the first redirect URI in the file, and only accepts a `localhost`
+or `127.0.0.1` one.
 
-When you create the client, Google shows the client ID and secret. Copy the
-secret then. Google's documentation says it can't be recovered later, and if
-you lose it you have to create a new one.
+## 5. Download the client file
 
-## 5. Put the values in `.env`
+When you create the client, use **Download JSON** and save the file as
+`client_secret.json` in the repository root. Google's documentation says the
+secret can't be recovered later, so download it then. If you lose it, you have
+to create a new client.
 
-```sh
-OAUTH_CLIENT_ID=<client id>.apps.googleusercontent.com
-OAUTH_CLIENT_SECRET=<client secret>
-OAUTH_REDIRECT_URL=http://localhost:8080/oauth2/callback
-```
-
-`.env` is git-ignored. Never commit the secret. If it leaks, delete the client
-in the Console and create a new one.
+`client_secret.json` is git-ignored. Never commit it. If it leaks, delete the
+client in the Console and create a new one.
 
 ## 6. Check that it works
 
 From the repository root:
 
 ```sh
-set -a; . ./.env; set +a; go test -tags oauthtoken -count=1 -v ./webapp
+go test -tags oauthtoken -count=1 -v ./webapp
 ```
 
 Open the URL it prints, approve access, and the token is saved to
