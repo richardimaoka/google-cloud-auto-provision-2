@@ -28,8 +28,8 @@ https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/create
 
 - [`projects.create.success.json`](./projects.create.success.json) (the create request was accepted, and the operation is not done yet)
 - [`projects.create.already_exists.json`](./projects.create.already_exists.json) (409 ALREADY_EXISTS, when the project ID is already taken)
-- [`projects.get.invalid_argument.json`](./projects.get.invalid_argument.json) (400 INVALID_ARGUMENT. Not recorded for create, the error has the same shape. The docs say create returns it for a malformed project ID or a restricted word such as "google")
-- [`projects.get.permission_denied.json`](./projects.get.permission_denied.json) (403 PERMISSION_DENIED. Not recorded for create, the error has the same shape, for a caller who is not allowed to create projects)
+- [`projects.create.invalid_argument.json`](./README.md) (TODO: 400 INVALID_ARGUMENT, for a malformed project ID or a restricted word such as "google")
+- [`projects.create.permission_denied.json`](./README.md) (TODO: 403 PERMISSION_DENIED, when the caller is not allowed to create projects)
 
 Where a project lands depends on who creates it, because Create sends no parent.
 See the operations.get files named caller_*.
@@ -60,6 +60,7 @@ https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/get
 ```
 
 - [`projects.get.success.json`](./projects.get.success.json) (an ACTIVE project. `name` is `projects/<project number>`, not the project ID, which is in `projectId`)
+- [`projects.get.no_parent.json`](./README.md) (TODO: a project with no parent, so `parent` is absent)
 - [`projects.get.delete_requested.json`](./README.md) (TODO: a project after it was deleted, state DELETE_REQUESTED)
 - [`projects.get.invalid_argument.json`](./projects.get.invalid_argument.json) (400 INVALID_ARGUMENT, for a malformed project ID)
 - [`projects.get.non_existent.json`](./projects.get.non_existent.json) (403 PERMISSION_DENIED, for a project ID that does not exist)
@@ -74,8 +75,9 @@ DELETE https://cloudresourcemanager.googleapis.com/v3/{name=projects/*}
 https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/delete
 ```
 
-- [`projects.delete.json`](./README.md) (TODO: the delete was accepted, and the operation is not done yet)
+- [`projects.delete.success.json`](./README.md) (TODO: the delete was accepted, and the operation is not done yet)
 - [`projects.delete.non_existent.json`](./README.md) (TODO: deleting a project that does not exist. Probably 403 like Get, not confirmed)
+- [`projects.delete.permission_denied.json`](./README.md) (TODO: deleting a project owned by someone else)
 - [`projects.delete.already_deleted.json`](./README.md) (TODO: deleting a project that is already DELETE_REQUESTED)
 
 ## To consider: refreshing the samples
