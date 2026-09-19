@@ -250,8 +250,8 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		}
 	})
 	t.Run("書き込みの updateMask は bindings と etag だけ", func(t *testing.T) {
-		// Fields outside the mask, like the audit configs that a Policy does not hold,
-		// are left alone.
+		// Policy has no audit-log settings (audit configs). The mask keeps the write
+		// from touching them.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
 			[]fakeIAMResponse{written}) // the write works (answer ignored)
