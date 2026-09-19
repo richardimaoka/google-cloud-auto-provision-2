@@ -15,50 +15,6 @@ import (
 // logic (the read-modify-write loop and the last-owner guard), and what the client
 // sends (policy version, etag, conditions).
 //
-// The clients take a project ID, or a number, and do not check it, like
-// ProjectsClient. Only projects are handled: nothing here is for folders or
-// organizations.
-//
-// What is tested, from the outside in. The names are the ones planned, and the
-// errors are provisional.
-//
-//	GetPolicy(ctx, projectID) (*Policy, error)
-//	AddBinding(ctx, projectID, role, member string) error
-//	RemoveBinding(ctx, projectID, role, member string) error
-//
-// AddBinding and RemoveBinding take one role and one member, both strings, the
-// member in the form the API uses, like "user:alice@example.com". They are named
-// after gcloud's add-iam-policy-binding and remove-iam-policy-binding.
-// AddBinding does nothing if the member has the role already, and writes nothing.
-// RemoveBinding returns ErrBindingNotFound if the member does not have the role:
-// the name given does not match anything, like a role that does not exist does for
-// AddBinding.
-//
-// This client reads conditional bindings, but does not set them. Neither method
-// takes a condition, and they work on the unconditional bindings only, like gcloud
-// does with --condition=None: a member is added to the unconditional binding of a
-// role, and removed from it, and a binding that has a Condition is never touched.
-// A write sends the conditional bindings back as they were read, so it does not
-// change who has access.
-//
-// Below them is updatePolicy, in package gcp and not exported:
-//
-//	(*IAMClient).updatePolicy(ctx, projectID, update func(*Policy) error) error
-//
-// It is the read-modify-write operation. The etag is kept inside it, so Policy has
-// no Etag. It does not write if update left the policy equal to the one it read.
-// What AddBinding and RemoveBinding do to a policy, find the unconditional binding
-// of a role and put a member in it or take one out, is small, and is tested through
-// them, not on a Policy by itself. A binding whose last member goes is removed.
-//
-// The guard: a project whose policy has no owner can't be changed by anyone who
-// gets access only through it. So updatePolicy refuses a change that leaves a
-// project with no owner, when the policy it read had one. An owner is a member of
-// an unconditional roles/owner binding, and a "deleted:" member is not one, as it
-// grants nothing. The error is ErrLastOwner, found with errors.Is, and nothing is
-// written or retried. A policy that had no owner to begin with, for example
-// because the owners come from the organization, is written as it is.
-//
 // Every case below is skipped until it is written.
 
 // fakeIAMResponse is one scripted answer of the fake server: an error status with
