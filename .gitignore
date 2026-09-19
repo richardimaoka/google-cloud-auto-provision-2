@@ -10,3 +10,6 @@ terraform/*.tfstate.*
 terraform/terraform.tfvars
 
 client_secret.json
+
+# Recorded API responses, before the identifiers are replaced
+scripts/samples/out/
