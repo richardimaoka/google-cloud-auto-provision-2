@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -23,7 +24,29 @@ var (
 	otherProjectNumbers = []string{"987654321098", "876543210987", "765432109876"}
 	organizationNumbers = []string{"100000000000", "200000000000", "300000000000"}
 	projectIDs          = []string{"my-project-123", "my-project-456", "my-project-789"}
+	// Project IDs of projects the caller can't use, which show up in an error
+	// response as "projects/<ID>" and are not a "projectId". The API does not say
+	// whether such a project exists, so they read as the ones that don't.
+	otherProjectIDs = []string{"this-does-not-exist-1", "this-does-not-exist-2", "this-does-not-exist-3"}
 )
+
+// fakeProjectIDPrefix starts the names of projects made up not to exist. They
+// hold nothing real, so they stay as they are.
+const fakeProjectIDPrefix = "this-does-not-exist"
+
+var (
+	// projectRefRE finds "projects/<project ID>", where the ID is the whole name.
+	projectRefRE = regexp.MustCompile(`projects/([a-z][a-z0-9-]*[a-z0-9])`)
+	projectIDRE  = regexp.MustCompile(`^[a-z][a-z0-9-]{4,28}[a-z0-9]$`)
+)
+
+// isOtherProjectID reports whether id is the ID of a project that has not been
+// given a placeholder yet: not a made-up name, and not a placeholder.
+func isOtherProjectID(id string) bool {
+	return projectIDRE.MatchString(id) &&
+		!strings.HasPrefix(id, fakeProjectIDPrefix) &&
+		!slices.Contains(projectIDs, id)
+}
 
 const (
 	operationNumber = "1234567890123456789"
@@ -124,6 +147,28 @@ func anonymize(data []byte) ([]byte, error) {
 	}
 	text = strings.NewReplacer(pairs...).Replace(text)
 
+	// In an error response, "projects/<ID>" that is not a "projectId" is a project
+	// the caller can't use. The same ID is in the encoded error IDs, which are
+	// rewritten below, and gets the same placeholder from others.
+	others := newAllocator("project IDs of other projects", otherProjectIDs)
+	otherProject := func(id string) (string, error) {
+		if !isError || !isOtherProjectID(id) {
+			return id, nil
+		}
+		return others.get(id)
+	}
+	var otherErr error
+	text = projectRefRE.ReplaceAllStringFunc(text, func(m string) string {
+		id, err := otherProject(strings.TrimPrefix(m, "projects/"))
+		if err != nil && otherErr == nil {
+			otherErr = err
+		}
+		return "projects/" + id
+	})
+	if otherErr != nil {
+		return nil, otherErr
+	}
+
 	resource := func(res string) (string, error) {
 		name, ok := strings.CutPrefix(res, "projects/")
 		if !ok {
@@ -136,7 +181,8 @@ func anonymize(data []byte) ([]byte, error) {
 		if p, ok := idMap[name]; ok {
 			return "projects/" + p, nil
 		}
-		return res, nil
+		p, err := otherProject(name)
+		return "projects/" + p, err
 	}
 
 	var out strings.Builder

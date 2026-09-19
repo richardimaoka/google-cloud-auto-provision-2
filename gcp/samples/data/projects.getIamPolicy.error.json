@@ -1,0 +1,20 @@
+{
+  "error": {
+    "code": 403,
+    "message": "Permission 'resourcemanager.projects.getIamPolicy' denied on resource '//cloudresourcemanager.googleapis.com/projects/this-does-not-exist-1' (or it may not exist). Remediate access with this Troubleshooter URL or share it with your administrator - https://console.cloud.google.com/iam-admin/troubleshooter/summary;errorId=CiQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDASHnByb2plY3RzL3RoaXMtZG9lcy1ub3QtZXhpc3QtMQ%3D%3D .",
+    "status": "PERMISSION_DENIED",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "IAM_PERMISSION_DENIED",
+        "domain": "cloudresourcemanager.googleapis.com",
+        "metadata": {
+          "error_info_id": "CiQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDASHnByb2plY3RzL3RoaXMtZG9lcy1ub3QtZXhpc3QtMQ==",
+          "permission": "resourcemanager.projects.getIamPolicy",
+          "resource": "projects/this-does-not-exist-1",
+          "troubleshooter_url": "https://console.cloud.google.com/iam-admin/troubleshooter/summary;errorId=CiQwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDASHnByb2plY3RzL3RoaXMtZG9lcy1ub3QtZXhpc3QtMQ%3D%3D"
+        }
+      }
+    ]
+  }
+}

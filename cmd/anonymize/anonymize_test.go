@@ -66,6 +66,8 @@ func TestAnonymize_RestoresSamplesFromRealLookingValues(t *testing.T) {
 		"1234567890123456789", "8882223334445556667",
 		"0123456789abcdef", "deadbeefcafe0123",
 		"my-project-123", "it-test-project-77",
+		// The same length as the placeholder, so an encoded error ID keeps its padding.
+		"this-does-not-exist-1", "someone-elses-proj-99",
 		// Members of an IAM policy.
 		"service-123456789012", "service-555000111222",
 		"123456789012-compute", "555000111222-compute",
@@ -176,6 +178,21 @@ func TestAnonymize_Rules(t *testing.T) {
 				`"members":["serviceAccount:123456789012-compute@developer.gserviceaccount.com"]}]}`,
 		},
 		{
+			name: "エラーのレスポンスで projectId にないプロジェクト ID は this-does-not-exist-N にする",
+			in:   `{"error":{"message":"denied on projects/real-other-a, projects/real-other-b and projects/real-other-a"}}`,
+			want: `{"error":{"message":"denied on projects/this-does-not-exist-1, projects/this-does-not-exist-2 and projects/this-does-not-exist-1"}}`,
+		},
+		{
+			name: "作り物の名前(this-does-not-exist で始まる)は、ハイフンがなくても変えない",
+			in:   `{"error":{"message":"denied on projects/this-does-not-existtttt123456"}}`,
+			want: `{"error":{"message":"denied on projects/this-does-not-existtttt123456"}}`,
+		},
+		{
+			name: "エラーのレスポンスでも projectId のプロジェクトは my-project-N のまま",
+			in:   `{"error":{"message":"denied on projects/real-proj-x","details":[{"violations":[{"subject":"real-proj-x"}]}]}}`,
+			want: `{"error":{"message":"denied on projects/my-project-123","details":[{"violations":[{"subject":"my-project-123"}]}]}}`,
+		},
+		{
 			name: "example.com のメールアドレスは残ってもよい(大文字小文字は問わない)",
 			in:   `{"a":"owner@example.com","b":"member@EXAMPLE.COM"}`,
 			want: `{"a":"owner@example.com","b":"member@EXAMPLE.COM"}`,
@@ -269,6 +286,11 @@ func TestAnonymize_Errors(t *testing.T) {
 			"distinct user email addresses",
 		},
 		{
+			"他のプロジェクトの ID のプレースホルダーが足りない",
+			`{"error":{"message":"projects/real-other-a projects/real-other-b projects/real-other-c projects/real-other-d"}}`,
+			"distinct project IDs of other projects",
+		},
+		{
 			"プロジェクト番号のプレースホルダーが足りない",
 			`{"a":"projects/111111111111","b":"projects/222222222222","c":"projects/333333333333","d":"projects/444444444444"}`,
 			"distinct project numbers",
@@ -350,6 +372,37 @@ func TestAnonymize_ErrorIDs(t *testing.T) {
 		want := "\n$" + zeroUUID + "\x12\x17projects/my-project-123" // 23 bytes
 		if decoded := decodeErrorID(t, out.ID); decoded != want {
 			t.Errorf("decoded ID = %q, want %q", decoded, want)
+		}
+	})
+
+	t.Run("エラーのレスポンスで、メッセージとエンコード内の他のプロジェクトの ID は同じプレースホルダーにする", func(t *testing.T) {
+		id := makeErrorID(uuid, "projects/real-other-a", "")
+		in := `{"error":{"message":"denied on projects/real-other-a, errorId=` + id + `"}}`
+
+		got, err := anonymize([]byte(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := makeErrorID(zeroUUID, "projects/this-does-not-exist-1", "")
+		if !strings.Contains(string(got), "projects/this-does-not-exist-1, errorId="+want) {
+			t.Errorf("want projects/this-does-not-exist-1 and the ID %q in %s", want, got)
+		}
+		if strings.Contains(string(got), "real-other-a") || strings.Contains(string(got), id) {
+			t.Errorf("a real value is left in %s", got)
+		}
+	})
+
+	t.Run("エンコード内にだけある他のプロジェクトの ID も置き換える", func(t *testing.T) {
+		id := makeErrorID(uuid, "projects/real-other-a", "")
+		in := `{"error":{"code":403,"id":"` + id + `"}}`
+
+		got, err := anonymize([]byte(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := makeErrorID(zeroUUID, "projects/this-does-not-exist-1", "")
+		if !strings.Contains(string(got), want) {
+			t.Errorf("want the ID %q in %s", want, got)
 		}
 	})
 
