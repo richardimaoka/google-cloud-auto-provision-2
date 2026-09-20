@@ -85,6 +85,9 @@ func projectFromAPI(p *cloudresourcemanager.Project) *Project {
 }
 
 // Get returns the project with the given project ID.
+//
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#ProjectsService.Get
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/get
 func (c *ProjectsClient) Get(ctx context.Context, id string) (*Project, error) {
 	p, err := c.service.Projects.Get("projects/" + id).Context(ctx).Do()
 	if err != nil {
@@ -110,6 +113,9 @@ func (c *ProjectsClient) Get(ctx context.Context, id string) (*Project, error) {
 // A project ID is at most 30 characters, so the suffix is shortened to fit. If
 // name is so long that not even a one-digit suffix fits, Create makes only the
 // first attempt, and returns its error if it fails.
+//
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#ProjectsService.Create
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/create
 func (c *ProjectsClient) Create(ctx context.Context, name string) (*Project, error) {
 	log := c.logger()
 	var tried []string
@@ -191,6 +197,9 @@ func nextProjectID(name string, tried []string) (string, bool) {
 
 // Delete marks the project for deletion, which moves it to the DELETE_REQUESTED
 // state. It blocks until the long-running delete operation finishes.
+//
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#ProjectsService.Delete
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/delete
 func (c *ProjectsClient) Delete(ctx context.Context, id string) error {
 	log := c.logger()
 	log.Info("deleting project", "project_id", id)
