@@ -3,6 +3,8 @@ package googlecloud
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path"
 	"time"
 
 	privilegedaccessmanager "cloud.google.com/go/privilegedaccessmanager/apiv1"
@@ -64,6 +66,30 @@ type ApprovalStep struct {
 	ApprovalsNeeded int32
 }
 
+// OnboardingStatus is a CheckOnboardingStatusResponse.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb#CheckOnboardingStatusResponse
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/CheckOnboardingStatusResponse
+type OnboardingStatus struct {
+	ServiceAccount string
+	// Findings is empty if PAM reports no issue. PAM may not report every issue.
+	Findings []OnboardingFinding
+}
+
+// IsReady reports whether the status has a service account and no findings.
+func (s *OnboardingStatus) IsReady() bool {
+	return s.ServiceAccount != "" && len(s.Findings) == 0
+}
+
+// OnboardingFinding is a CheckOnboardingStatusResponse.Finding of the type
+// IAMAccessDenied.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb#CheckOnboardingStatusResponse_Finding_IAMAccessDenied
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/CheckOnboardingStatusResponse
+type OnboardingFinding struct {
+	MissingPermissions []string
+}
+
 // PAMClient is a client for Privileged Access Manager, the API that grants roles
 // for a limited time.
 //
@@ -89,5 +115,21 @@ func (c *PAMClient) Close() error {
 // GetEntitlement returns an entitlement of a project. It returns
 // ErrEntitlementNotFound if the project has none with that ID.
 func (c *PAMClient) GetEntitlement(ctx context.Context, projectID, entitlementID string) (*Entitlement, error) {
+	panic("not implemented")
+}
+
+// isHTTPStatus reports whether err is an API error with the HTTP status code. It
+// looks for the error of google.golang.org/api that the REST client wraps.
+func isHTTPStatus(err error, code int) bool {
+	var gerr *googleapi.Error
+	return errors.As(err, &gerr) && gerr.Code == code
+}
+
+// CheckOnboarding calls CheckOnboardingStatus on a project in the global location.
+// It returns the errors of the API as they are.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1#Client.CheckOnboardingStatus
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/projects.locations/checkOnboardingStatus
+func (c *PAMClient) CheckOnboarding(ctx context.Context, projectID string) (*OnboardingStatus, error) {
 	panic("not implemented")
 }
