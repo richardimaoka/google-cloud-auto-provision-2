@@ -38,6 +38,9 @@ var (
 
 // Policy represents an IAM policy. Its fields are named after the ones of the
 // Policy of the cloudresourcemanager API, without Etag and AuditConfigs.
+//
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#Policy
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/Policy
 type Policy struct {
 	// Bindings associate members with roles. One role can be in more than one
 	// binding, for example one without a Condition and one with.
@@ -143,6 +146,9 @@ func policyToAPI(p *Policy, etag string) *cloudresourcemanager.Policy {
 
 // GetPolicy returns the IAM policy of a project, given its ID or its number. It
 // asks for policy version 3, so a condition is never left out.
+//
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#ProjectsService.GetIamPolicy
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/getIamPolicy
 func (c *IAMClient) GetPolicy(ctx context.Context, projectID string) (*Policy, error) {
 	p, err := c.getPolicy(ctx, "projects/"+projectID)
 	if err != nil {
@@ -167,6 +173,11 @@ func (c *IAMClient) getPolicy(ctx context.Context, resource string) (*cloudresou
 // add-iam-policy-binding. The member is in the form the API uses, like
 // "user:alice@example.com". It does nothing, and writes nothing, if the member has
 // the role already.
+//
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#ProjectsService.GetIamPolicy
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#ProjectsService.SetIamPolicy
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/getIamPolicy
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/setIamPolicy
 func (c *IAMClient) AddBinding(ctx context.Context, projectID, role, member string) error {
 	return c.updatePolicy(ctx, projectID, func(p *Policy) error {
 		for i, b := range p.Bindings {
@@ -190,6 +201,11 @@ func (c *IAMClient) AddBinding(ctx context.Context, projectID, role, member stri
 // returns ErrBindingNotFound if the member does not have the role, in the way a
 // role that does not exist is an error for AddBinding, and ErrLastOwner if it
 // would leave the project with no owner.
+//
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#ProjectsService.GetIamPolicy
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudresourcemanager/v3#ProjectsService.SetIamPolicy
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/getIamPolicy
+// REST: https://docs.cloud.google.com/resource-manager/reference/rest/v3/projects/setIamPolicy
 func (c *IAMClient) RemoveBinding(ctx context.Context, projectID, role, member string) error {
 	return c.updatePolicy(ctx, projectID, func(p *Policy) error {
 		for i, b := range p.Bindings {

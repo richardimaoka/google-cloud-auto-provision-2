@@ -61,6 +61,12 @@ func NewGroupsClient(ctx context.Context, opts ...option.ClientOption) (*GroupsC
 	return &GroupsClient{service: svc}, nil
 }
 
+// Get returns the group with email and its members.
+//
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudidentity/v1#GroupsService.Lookup
+// SDK: https://pkg.go.dev/google.golang.org/api/cloudidentity/v1#GroupsMembershipsService.List
+// REST: https://docs.cloud.google.com/identity/docs/reference/rest/v1/groups/lookup
+// REST: https://docs.cloud.google.com/identity/docs/reference/rest/v1/groups.memberships/list
 func (c *GroupsClient) Get(ctx context.Context, email string) (*Group, error) {
 	lookup, err := c.service.Groups.Lookup().GroupKeyId(email).Context(ctx).Do()
 	if err != nil {
