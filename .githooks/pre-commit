@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Stops a commit that would put real identifiers into gcp/samples/data.
+# Stops a commit that would put real identifiers into googlecloud/samples/data.
 #
 # Enable it once per clone: git config core.hooksPath .githooks
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-# The raw responses in gcp/samples/scripts/out/ hold real identifiers. It is
+# The raw responses in googlecloud/samples/scripts/out/ hold real identifiers. It is
 # git-ignored, so this only happens with `git add -f`.
-if git diff --cached --name-only | grep -q '^gcp/samples/scripts/out/'; then
-  echo "pre-commit: files in gcp/samples/scripts/out/ are staged. They hold real identifiers and must not be committed." >&2
+if git diff --cached --name-only | grep -q '^googlecloud/samples/scripts/out/'; then
+  echo "pre-commit: files in googlecloud/samples/scripts/out/ are staged. They hold real identifiers and must not be committed." >&2
   exit 1
 fi
 
-samples="$(git diff --cached --name-only --diff-filter=ACMR | grep '^gcp/samples/data/.*\.json$' || true)"
+samples="$(git diff --cached --name-only --diff-filter=ACMR | grep '^googlecloud/samples/data/.*\.json$' || true)"
 if [ -z "${samples}" ]; then
   exit 0
 fi
@@ -28,6 +28,6 @@ done <<<"${samples}"
 
 echo "pre-commit: checking that the samples hold placeholders only" >&2
 if ! go test -count=1 ./cmd/anonymize >&2; then
-  echo "pre-commit: a sample does not hold placeholders only. Run: go run ./cmd/anonymize gcp/samples/scripts/out/<name>.json" >&2
+  echo "pre-commit: a sample does not hold placeholders only. Run: go run ./cmd/anonymize googlecloud/samples/scripts/out/<name>.json" >&2
   exit 1
 fi

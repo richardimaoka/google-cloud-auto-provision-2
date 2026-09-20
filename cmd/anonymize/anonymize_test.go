@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const samplesDataDir = "../../gcp/samples/data"
+const samplesDataDir = "../../googlecloud/samples/data"
 
 func compact(t *testing.T, data []byte) string {
 	t.Helper()

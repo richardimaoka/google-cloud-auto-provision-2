@@ -15,7 +15,7 @@ variable "billing_account" {
 }
 
 variable "parent" {
-  description = "Parent of the project, \"folders/123\" or \"organizations/456\" (same format as PARENT_RESOURCE). Must match where the project was created. Leave empty if there is no GCP organization."
+  description = "Parent of the project, \"folders/123\" or \"organizations/456\" (same format as PARENT_RESOURCE). Must match where the project was created. Leave empty if there is no Google Cloud organization."
   type        = string
   default     = ""
 

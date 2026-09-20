@@ -13,7 +13,7 @@ import (
 
 // The placeholders handed out to the distinct real values of one response, in
 // the order the values first appear. The first of each is what the samples in
-// gcp/samples/data already use. The others are for responses that have more than
+// googlecloud/samples/data already use. The others are for responses that have more than
 // one, and can be extended.
 var (
 	// Project numbers of the caller's own projects, like the project a

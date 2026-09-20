@@ -12,4 +12,4 @@ terraform/terraform.tfvars
 client_secret.json
 
 # Recorded API responses, before the identifiers are replaced
-gcp/samples/scripts/out/
+googlecloud/samples/scripts/out/

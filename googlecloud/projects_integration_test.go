@@ -1,6 +1,6 @@
 //go:build integration
 
-package gcp
+package googlecloud
 
 // This test calls the real Resource Manager API and creates and deletes one
 // real project. Each run uses up one project of the organization's project
@@ -10,8 +10,8 @@ package gcp
 // CI. Load the variables from .env.integration for one run, as described in
 // groups_integration_test.go:
 //
-//	(set -a; . ./.env.integration; set +a; go test -tags integration -count=1 -v ./gcp -run Lifecycle)
-//	(set -a; . ./.env.integration; set +a; go test -tags integration -count=1 -v ./gcp -run Lifecycle -force)
+//	(set -a; . ./.env.integration; set +a; go test -tags integration -count=1 -v ./googlecloud -run Lifecycle)
+//	(set -a; . ./.env.integration; set +a; go test -tags integration -count=1 -v ./googlecloud -run Lifecycle -force)
 //
 // -count=1 stops go test from replaying a cached result instead of running it
 // again. -v shows the client's full log, which the test prints to stderr.

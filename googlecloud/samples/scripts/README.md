@@ -1,8 +1,8 @@
 # Recording API samples
 
-One script per sample in `gcp/samples/data`. Each script shows the `curl` request, and saves the response to `out/<sample name>.json`.
+One script per sample in `googlecloud/samples/data`. Each script shows the `curl` request, and saves the response to `out/<sample name>.json`.
 
-`out/` is git-ignored, because the responses hold real identifiers. Replace them with placeholders before a file goes into `gcp/samples/data`.
+`out/` is git-ignored, because the responses hold real identifiers. Replace them with placeholders before a file goes into `googlecloud/samples/data`.
 
 ## Usage
 
@@ -27,13 +27,13 @@ The script says who it calls as, so the response can be tied to that account.
 
 ## After recording
 
-Replace the real identifiers, and write the sample into `gcp/samples/data`:
+Replace the real identifiers, and write the sample into `googlecloud/samples/data`:
 
 ```sh
-go run ./cmd/anonymize gcp/samples/scripts/out/projects.get.error.non_existent.json
+go run ./cmd/anonymize googlecloud/samples/scripts/out/projects.get.error.non_existent.json
 ```
 
-Look at the result with `git diff`, and add the sample to the README of `gcp/samples/data`. See "Placeholders" there for what is replaced.
+Look at the result with `git diff`, and add the sample to the README of `googlecloud/samples/data`. See "Placeholders" there for what is replaced.
 
 ## Scripts
 

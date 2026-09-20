@@ -1,5 +1,5 @@
 // Command anonymize replaces the real identifiers in recorded API responses with
-// the placeholders used in gcp/samples/data.
+// the placeholders used in googlecloud/samples/data.
 //
 //	go run ./cmd/anonymize [-o dir] file.json...
 //
@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	outDir := flag.String("o", "gcp/samples/data", "directory the anonymized files are written to")
+	outDir := flag.String("o", "googlecloud/samples/data", "directory the anonymized files are written to")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: anonymize [-o dir] file.json...")
 		flag.PrintDefaults()

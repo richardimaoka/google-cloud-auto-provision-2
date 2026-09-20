@@ -1,6 +1,6 @@
 //go:build integration
 
-package gcp
+package googlecloud
 
 import "testing"
 
@@ -17,7 +17,7 @@ import "testing"
 //
 //  1. Save the policy the project has now, and restore it when the test ends,
 //     even if it failed. It goes through updatePolicy, which the test can call
-//     as it is in package gcp.
+//     as it is in package googlecloud.
 //  2. Reduce the policy to almost nothing: keep the roles/owner binding of the
 //     account that runs the test. Removing it would leave nobody who can change
 //     the policy again.
