@@ -7,11 +7,12 @@ import (
 	"fmt"
 	// Only parses addresses, never touches the network, so it keeps this package free of I/O.
 	"net/mail"
+	"strings"
 )
 
 type ProjectCreationRequest struct {
 	requester      Email
-	developerGroup Email
+	developerGroup GoogleGroup
 }
 
 // Email is a validated email address.
@@ -35,3 +36,29 @@ func NewEmail(s string) (Email, error) {
 }
 
 func (e Email) String() string { return e.value }
+
+// GoogleGroup represents a Google Group.
+type GoogleGroup struct {
+	Email   Email
+	Domain  string
+	Members []GoogleGroupMember
+}
+
+// GoogleGroupMember represents a Google Group member. Role is the strongest of
+// the roles the member holds.
+type GoogleGroupMember struct {
+	Email  Email
+	Role   string
+	Domain string
+}
+
+// SameDomain reports whether all of g's members have g's Domain. Domains are
+// compared case-insensitively.
+func (g *GoogleGroup) SameDomain() bool {
+	for _, m := range g.Members {
+		if !strings.EqualFold(m.Domain, g.Domain) {
+			return false
+		}
+	}
+	return true
+}
