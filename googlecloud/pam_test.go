@@ -129,14 +129,32 @@ func TestPAMClient_CheckOnboarding(t *testing.T) {
 
 func TestOnboardingStatus_IsReady(t *testing.T) {
 	t.Run("サービスアカウントがあって指摘がなければtrueになる", func(t *testing.T) {
-		t.Skip("not written yet")
+		// Findings is nil in one and empty in the other: both mean no findings.
+		for name, s := range map[string]*OnboardingStatus{
+			"nil":   {ServiceAccount: "service-123@gcp-sa-pam.iam.gserviceaccount.com"},
+			"empty": {ServiceAccount: "service-123@gcp-sa-pam.iam.gserviceaccount.com", Findings: []OnboardingFinding{}},
+		} {
+			if !s.IsReady() {
+				t.Errorf("IsReady() = false with %s Findings, want true", name)
+			}
+		}
 	})
 
 	t.Run("指摘があればfalseになる", func(t *testing.T) {
-		t.Skip("not written yet")
+		s := &OnboardingStatus{
+			ServiceAccount: "service-123@gcp-sa-pam.iam.gserviceaccount.com",
+			Findings:       []OnboardingFinding{{MissingPermissions: []string{"resourcemanager.projects.getIamPolicy"}}},
+		}
+		if s.IsReady() {
+			t.Errorf("IsReady() = true with %d findings, want false", len(s.Findings))
+		}
 	})
 
 	t.Run("サービスアカウントが空ならfalseになる", func(t *testing.T) {
-		t.Skip("not written yet")
+		// It is false even with no findings: PAM may not report every issue.
+		s := &OnboardingStatus{}
+		if s.IsReady() {
+			t.Errorf("IsReady() = true without a service account, want false")
+		}
 	})
 }

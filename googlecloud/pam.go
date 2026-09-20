@@ -84,7 +84,7 @@ type OnboardingStatus struct {
 
 // IsReady reports whether the status has a service account and no findings.
 func (s *OnboardingStatus) IsReady() bool {
-	panic("not implemented")
+	return s.ServiceAccount != "" && len(s.Findings) == 0
 }
 
 // OnboardingFinding is a CheckOnboardingStatusResponse.Finding of the type
