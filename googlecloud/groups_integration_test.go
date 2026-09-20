@@ -13,17 +13,17 @@ package googlecloud
 //	(set -a; . ./.env.integration; set +a; go test -tags integration ./googlecloud)
 //
 // Credentials come from Application Default Credentials. The tests refuse to
-// run unless the project recorded in ADC matches GCP_TEST_QUOTA_PROJECT, so a
+// run unless the project recorded in ADC matches GOOGLE_TEST_QUOTA_PROJECT, so a
 // stale ADC project can't be used by accident. Each test also fails when the
 // environment variable naming its fixture is unset:
 //
-//	GCP_TEST_QUOTA_PROJECT      quota project; must match the ADC project
-//	GCP_TEST_DOMAIN             domain that owns the fixture groups
-//	GCP_TEST_GROUP_EMPTY        group with no members
-//	GCP_TEST_GROUP_MIXED_ROLES  group with at least one OWNER and one MEMBER
-//	GCP_TEST_GROUP_LARGE        group with more members than one page (> 200)
-//	GCP_TEST_GROUP_SAME_DOMAIN  group whose members are all in its own domain
-//	GCP_TEST_GROUP_EXTERNAL     group with a member outside its own domain
+//	GOOGLE_TEST_QUOTA_PROJECT      quota project; must match the ADC project
+//	GOOGLE_TEST_DOMAIN             domain that owns the fixture groups
+//	GOOGLE_TEST_GROUP_EMPTY        group with no members
+//	GOOGLE_TEST_GROUP_MIXED_ROLES  group with at least one OWNER and one MEMBER
+//	GOOGLE_TEST_GROUP_LARGE        group with more members than one page (> 200)
+//	GOOGLE_TEST_GROUP_SAME_DOMAIN  group whose members are all in its own domain
+//	GOOGLE_TEST_GROUP_EXTERNAL     group with a member outside its own domain
 
 import (
 	"cmp"
@@ -49,12 +49,12 @@ func TestMain(m *testing.M) {
 }
 
 // checkADCProject fails unless the project ADC points at is the one named by
-// GCP_TEST_QUOTA_PROJECT. User credentials record it as quota_project_id and
+// GOOGLE_TEST_QUOTA_PROJECT. User credentials record it as quota_project_id and
 // service account keys as project_id.
 func checkADCProject(ctx context.Context) error {
-	want := os.Getenv("GCP_TEST_QUOTA_PROJECT")
+	want := os.Getenv("GOOGLE_TEST_QUOTA_PROJECT")
 	if want == "" {
-		return errors.New("GCP_TEST_QUOTA_PROJECT is not set")
+		return errors.New("GOOGLE_TEST_QUOTA_PROJECT is not set")
 	}
 
 	creds, err := google.FindDefaultCredentials(ctx, cloudidentity.CloudPlatformScope)
@@ -74,7 +74,7 @@ func checkADCProject(ctx context.Context) error {
 
 	got := cmp.Or(adc.QuotaProjectID, adc.ProjectID, creds.ProjectID)
 	if got != want {
-		return fmt.Errorf("ADC project is %q but GCP_TEST_QUOTA_PROJECT is %q; "+
+		return fmt.Errorf("ADC project is %q but GOOGLE_TEST_QUOTA_PROJECT is %q; "+
 			"run `gcloud auth application-default set-quota-project %s` or fix the env file", got, want, want)
 	}
 	return nil
@@ -92,7 +92,7 @@ func requireEnv(t *testing.T, key string) string {
 func newIntegrationClient(t *testing.T) *GroupsClient {
 	t.Helper()
 
-	quotaProject := requireEnv(t, "GCP_TEST_QUOTA_PROJECT")
+	quotaProject := requireEnv(t, "GOOGLE_TEST_QUOTA_PROJECT")
 	client, err := NewGroupsClient(context.Background(), option.WithQuotaProject(quotaProject))
 	if err != nil {
 		t.Fatalf("NewGroupsClient: %v", err)
@@ -108,7 +108,7 @@ func TestGroupsClient_Get_Integration(t *testing.T) {
 	}{
 		{
 			name: "メンバー0人のグループ",
-			env:  "GCP_TEST_GROUP_EMPTY",
+			env:  "GOOGLE_TEST_GROUP_EMPTY",
 			check: func(t *testing.T, g *Group) {
 				if len(g.Members) != 0 {
 					t.Errorf("Members = %+v, want none", g.Members)
@@ -117,7 +117,7 @@ func TestGroupsClient_Get_Integration(t *testing.T) {
 		},
 		{
 			name: "メンバーが複数かつロールが混在するグループ",
-			env:  "GCP_TEST_GROUP_MIXED_ROLES",
+			env:  "GOOGLE_TEST_GROUP_MIXED_ROLES",
 			check: func(t *testing.T, g *Group) {
 				roles := map[string]bool{}
 				for _, m := range g.Members {
@@ -132,7 +132,7 @@ func TestGroupsClient_Get_Integration(t *testing.T) {
 		},
 		{
 			name: "メンバーが複数ページにまたがるグループ",
-			env:  "GCP_TEST_GROUP_LARGE",
+			env:  "GOOGLE_TEST_GROUP_LARGE",
 			check: func(t *testing.T, g *Group) {
 				// The API returns at most 200 memberships per page, so more
 				// than that proves every page was fetched.
@@ -180,7 +180,7 @@ func TestGroupsClient_Get_Integration(t *testing.T) {
 }
 
 func TestGroupsClient_Get_NotFound_Integration(t *testing.T) {
-	domain := requireEnv(t, "GCP_TEST_DOMAIN")
+	domain := requireEnv(t, "GOOGLE_TEST_DOMAIN")
 	client := newIntegrationClient(t)
 
 	email := fmt.Sprintf("does-not-exist-%d@%s", time.Now().UnixNano(), domain)
@@ -190,7 +190,7 @@ func TestGroupsClient_Get_NotFound_Integration(t *testing.T) {
 }
 
 func TestGroupsClient_Get_Unauthenticated_Integration(t *testing.T) {
-	email := requireEnv(t, "GCP_TEST_GROUP_EMPTY")
+	email := requireEnv(t, "GOOGLE_TEST_GROUP_EMPTY")
 
 	client, err := NewGroupsClient(context.Background(), option.WithoutAuthentication())
 	if err != nil {
@@ -207,8 +207,8 @@ func TestGroup_SameDomain_Integration(t *testing.T) {
 		env  string
 		want bool
 	}{
-		{name: "全メンバーのドメインがグループのドメインと一致", env: "GCP_TEST_GROUP_SAME_DOMAIN", want: true},
-		{name: "メンバーのドメインがグループのドメインと異なる", env: "GCP_TEST_GROUP_EXTERNAL", want: false},
+		{name: "全メンバーのドメインがグループのドメインと一致", env: "GOOGLE_TEST_GROUP_SAME_DOMAIN", want: true},
+		{name: "メンバーのドメインがグループのドメインと異なる", env: "GOOGLE_TEST_GROUP_EXTERNAL", want: false},
 	}
 
 	for _, c := range cases {
