@@ -180,17 +180,11 @@ func (c *IAMClient) RemoveBinding(ctx context.Context, projectID, role, member s
 	return nil
 }
 
-// updatePolicy is the read-modify-write operation under AddBinding and
-// RemoveBinding. It reads the policy, calls update, and writes the result with the
-// etag it read and version 3. On a conflict (409) it waits, reads again and calls
-// update again, up to maxUpdateAttempts attempts. It writes nothing if update left
-// the policy equal to the one it read.
-//
-// It refuses a change that leaves a project with no owner, when the policy it read
-// had one, and returns ErrLastOwner without writing or retrying. An owner is a
-// member of an unconditional roles/owner binding, and a "deleted:" member is not
-// one, as it grants nothing. A policy that had no owner to begin with, for example
-// because the owners come from the organization, is written as it is.
+// updatePolicy reads the policy, calls update on it and writes the result with the
+// etag it read. On a conflict (409) it reads again and calls update again on the
+// new policy, up to maxUpdateAttempts times, so update must be safe to call more
+// than once. It writes nothing if update changed nothing, and returns ErrLastOwner
+// instead of writing a policy that leaves the project with no owner.
 func (c *IAMClient) updatePolicy(ctx context.Context, projectID string, update func(*Policy) error) error {
 	var err error
 	for attempt := 1; attempt <= maxUpdateAttempts; attempt++ {
@@ -227,6 +221,8 @@ func (c *IAMClient) tryUpdatePolicy(ctx context.Context, resource string, update
 	if policy.equal(original) {
 		return nil
 	}
+	// A policy that had no owner to begin with, for example because the owners come
+	// from the organization, is written as it is.
 	if original.hasOwner() && !policy.hasOwner() {
 		return ErrLastOwner
 	}
