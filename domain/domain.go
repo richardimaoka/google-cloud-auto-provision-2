@@ -62,6 +62,14 @@ func (e Email) Domain() string {
 	return e.value[i+1:]
 }
 
+// Organization represents the Google Cloud organization this application is set up for.
+type Organization struct {
+	// ID is the numeric ID, without the "organizations/" prefix.
+	ID string
+	// Domain is the domain of the organization, such as "example.com".
+	Domain string
+}
+
 // GoogleGroup represents a Google Group.
 type GoogleGroup struct {
 	Email   Email
