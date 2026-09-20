@@ -248,29 +248,117 @@ func TestIAMClient_AddBinding(t *testing.T) {
 }
 
 func TestIAMClient_RemoveBinding(t *testing.T) {
+	condition := &cloudresourcemanager.Expr{
+		Title:       "condition title",
+		Description: "condition description",
+		Expression:  `request.time < timestamp("2030-01-01T00:00:00Z")`,
+	}
+
 	t.Run("メンバーを外した set request を送る", func(t *testing.T) {
 		// The other members of the binding, and the other bindings, stay.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com", "user:bob@example.com"}},
+				{Role: "roles/editor", Members: []string{"user:carol@example.com"}},
+			}})},
+			[]fakeIAMResponse{setOK}) // answer ignored
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.RemoveBinding(context.Background(), "my-project", "roles/viewer", "user:bob@example.com"); err != nil {
+			t.Fatalf("RemoveBinding() = %v, want nil error", err)
+		}
+
+		checkSetRequestBindings(t, srv, []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			{Role: "roles/editor", Members: []string{"user:carol@example.com"}},
+		})
 	})
-	t.Run("最後のメンバーを外すとバインディングごと消える", func(t *testing.T) {
-		t.Skip("not implemented")
+	t.Run("最後のメンバーを外すと、バインディングごと消える", func(t *testing.T) {
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+				{Role: "roles/editor", Members: []string{"user:carol@example.com"}},
+			}})},
+			[]fakeIAMResponse{setOK}) // answer ignored
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.RemoveBinding(context.Background(), "my-project", "roles/viewer", "user:alice@example.com"); err != nil {
+			t.Fatalf("RemoveBinding() = %v, want nil error", err)
+		}
+
+		checkSetRequestBindings(t, srv, []*cloudresourcemanager.Binding{
+			{Role: "roles/editor", Members: []string{"user:carol@example.com"}},
+		})
 	})
 	t.Run("条件付きバインディングのメンバーは外さない", func(t *testing.T) {
-		// The member is in the unconditional binding of the role and in a
-		// conditional one. It is removed from the first only, and the conditional
-		// binding goes back with its condition.
-		t.Skip("not implemented")
+		// The member is in a conditional binding, listed first, and in the
+		// unconditional one. Only the unconditional one loses it.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 3, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}, Condition: condition},
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com", "user:bob@example.com"}},
+			}})},
+			[]fakeIAMResponse{setOK}) // answer ignored
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.RemoveBinding(context.Background(), "my-project", "roles/viewer", "user:alice@example.com"); err != nil {
+			t.Fatalf("RemoveBinding() = %v, want nil error", err)
+		}
+
+		checkSetRequestBindings(t, srv, []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com"}, Condition: condition},
+			{Role: "roles/viewer", Members: []string{"user:bob@example.com"}},
+		})
 	})
 	t.Run("見つからなければ ErrBindingNotFound で、set request を送らない", func(t *testing.T) {
-		// errors.Is finds ErrBindingNotFound, and the fake has seen no set request.
-		// A member that is only in a conditional binding of the role counts as not
-		// found.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			}})}, nil)
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.RemoveBinding(context.Background(), "my-project", "roles/viewer", "user:bob@example.com")
+
+		if !errors.Is(err, ErrBindingNotFound) {
+			t.Errorf("RemoveBinding() = %v, want ErrBindingNotFound", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 0 {
+			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+		}
+	})
+	t.Run("条件付きバインディングにしかいないメンバーは、見つからない扱い", func(t *testing.T) {
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 3, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}, Condition: condition},
+			}})}, nil)
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.RemoveBinding(context.Background(), "my-project", "roles/viewer", "user:alice@example.com")
+
+		if !errors.Is(err, ErrBindingNotFound) {
+			t.Errorf("RemoveBinding() = %v, want ErrBindingNotFound", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 0 {
+			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+		}
 	})
 	t.Run("最後の owner を外すと ErrLastOwner", func(t *testing.T) {
-		// The guard of updatePolicy reaches the caller. The cases of the guard
-		// are in TestIAMClient_updatePolicy.
-		t.Skip("not implemented")
+		// The guard of updatePolicy reaches the caller.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/owner", Members: []string{"user:alice@example.com"}},
+				{Role: "roles/viewer", Members: []string{"user:bob@example.com"}},
+			}})}, nil)
+		client := newTestIAMClient(t, srv.URL)
+
+		err := client.RemoveBinding(context.Background(), "my-project", "roles/owner", "user:alice@example.com")
+
+		if !errors.Is(err, ErrLastOwner) {
+			t.Errorf("RemoveBinding() = %v, want ErrLastOwner", err)
+		}
+		if reqs := srv.SetRequests(); len(reqs) != 0 {
+			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+		}
 	})
 }
 

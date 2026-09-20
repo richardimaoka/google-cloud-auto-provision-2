@@ -191,7 +191,24 @@ func (c *IAMClient) AddBinding(ctx context.Context, projectID, role, member stri
 // role that does not exist is an error for AddBinding, and ErrLastOwner if it
 // would leave the project with no owner.
 func (c *IAMClient) RemoveBinding(ctx context.Context, projectID, role, member string) error {
-	return nil
+	return c.updatePolicy(ctx, projectID, func(p *Policy) error {
+		for i, b := range p.Bindings {
+			// Like AddBinding, it works on the unconditional binding only.
+			if b.Role != role || b.Condition != nil {
+				continue
+			}
+			j := slices.Index(b.Members, member)
+			if j < 0 {
+				continue
+			}
+			p.Bindings[i].Members = slices.Delete(b.Members, j, j+1)
+			if len(p.Bindings[i].Members) == 0 {
+				p.Bindings = slices.Delete(p.Bindings, i, i+1)
+			}
+			return nil
+		}
+		return ErrBindingNotFound
+	})
 }
 
 // updatePolicy reads the policy, calls update on it and writes the result with the
