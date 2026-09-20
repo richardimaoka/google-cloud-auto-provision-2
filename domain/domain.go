@@ -4,6 +4,7 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	// Only parses addresses, never touches the network, so it keeps this package free of I/O.
 	"net/mail"
@@ -11,8 +12,23 @@ import (
 )
 
 type ProjectCreationRequest struct {
-	requester      Email
-	developerGroup GoogleGroup
+	Requester      Email
+	DeveloperGroup GoogleGroup
+}
+
+// NewProjectCreationRequest returns a ProjectCreationRequest, or an error if
+// requester or developerGroup's Email is the zero Email.
+func NewProjectCreationRequest(requester Email, developerGroup GoogleGroup) (ProjectCreationRequest, error) {
+	if requester == (Email{}) {
+		return ProjectCreationRequest{}, errors.New("requester is empty")
+	}
+	if developerGroup.Email == (Email{}) {
+		return ProjectCreationRequest{}, errors.New("developer group email is empty")
+	}
+	return ProjectCreationRequest{
+		Requester:      requester,
+		DeveloperGroup: developerGroup,
+	}, nil
 }
 
 // Email is a validated email address.
@@ -36,6 +52,15 @@ func NewEmail(s string) (Email, error) {
 }
 
 func (e Email) String() string { return e.value }
+
+// Domain returns the part after the last "@", or "" for the zero Email.
+func (e Email) Domain() string {
+	i := strings.LastIndex(e.value, "@")
+	if i < 0 {
+		return ""
+	}
+	return e.value[i+1:]
+}
 
 // GoogleGroup represents a Google Group.
 type GoogleGroup struct {
