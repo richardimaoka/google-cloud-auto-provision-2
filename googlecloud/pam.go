@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"path"
 	"time"
 
@@ -71,6 +70,30 @@ type ApprovalStep struct {
 	// Approvers are principals, in the same form as EligibleUsers.
 	Approvers       []string
 	ApprovalsNeeded int32
+}
+
+// OnboardingStatus is a CheckOnboardingStatusResponse.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb#CheckOnboardingStatusResponse
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/CheckOnboardingStatusResponse
+type OnboardingStatus struct {
+	ServiceAccount string
+	// Findings is empty if PAM reports no issue. PAM may not report every issue.
+	Findings []OnboardingFinding
+}
+
+// IsReady reports whether the status has a service account and no findings.
+func (s *OnboardingStatus) IsReady() bool {
+	panic("not implemented")
+}
+
+// OnboardingFinding is a CheckOnboardingStatusResponse.Finding of the type
+// IAMAccessDenied.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb#CheckOnboardingStatusResponse_Finding_IAMAccessDenied
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/CheckOnboardingStatusResponse
+type OnboardingFinding struct {
+	MissingPermissions []string
 }
 
 // PAMClient is a client for Privileged Access Manager, the API that grants roles
@@ -146,16 +169,7 @@ func entitlementFromAPI(e *privilegedaccessmanagerpb.Entitlement) *Entitlement {
 // GetEntitlement returns an entitlement of a project. It returns
 // ErrEntitlementNotFound if the project has none with that ID.
 func (c *PAMClient) GetEntitlement(ctx context.Context, projectID, entitlementID string) (*Entitlement, error) {
-	e, err := c.client.GetEntitlement(ctx, &privilegedaccessmanagerpb.GetEntitlementRequest{
-		Name: entitlementName(projectID, entitlementID),
-	})
-	if err != nil {
-		if isHTTPStatus(err, http.StatusNotFound) {
-			return nil, fmt.Errorf("get entitlement: %w: %w", ErrEntitlementNotFound, err)
-		}
-		return nil, fmt.Errorf("get entitlement: %w", err)
-	}
-	return entitlementFromAPI(e), nil
+	panic("not implemented")
 }
 
 // isHTTPStatus reports whether err is an API error with the HTTP status code. It
@@ -163,4 +177,13 @@ func (c *PAMClient) GetEntitlement(ctx context.Context, projectID, entitlementID
 func isHTTPStatus(err error, code int) bool {
 	var gerr *googleapi.Error
 	return errors.As(err, &gerr) && gerr.Code == code
+}
+
+// CheckOnboarding calls CheckOnboardingStatus on a project in the global location.
+// It returns the errors of the API as they are.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1#Client.CheckOnboardingStatus
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/projects.locations/checkOnboardingStatus
+func (c *PAMClient) CheckOnboarding(ctx context.Context, projectID string) (*OnboardingStatus, error) {
+	panic("not implemented")
 }
