@@ -56,9 +56,10 @@ type fakeIAMServer struct {
 	setReqs []cloudresourcemanager.SetIamPolicyRequest
 }
 
-// newFakeIAMServer starts a fakeIAMServer. Each getIamPolicy request answers the
-// next entry of getResponses, and each setIamPolicy request the next entry of
-// setResponses.
+// newFakeIAMServer starts a fakeIAMServer. The responses are given in order: the
+// first getIamPolicy request gets getResponses[0], the second getResponses[1], and
+// so on, and setIamPolicy requests get setResponses the same way. A request past
+// the last response fails the test.
 func newFakeIAMServer(t *testing.T, getResponses, setResponses []fakeIAMResponse) *fakeIAMServer {
 	t.Helper()
 
@@ -145,17 +146,17 @@ func TestIAMClient_GetPolicy(t *testing.T) {
 }
 
 func TestIAMClient_AddBinding(t *testing.T) {
-	t.Run("ロールがなければ新しいバインディングを書き込む", func(t *testing.T) {
-		// The setIamPolicy body has a binding of the role with the member, and the
-		// rest of the policy as it was.
+	t.Run("ロールがなければ、set request に新しいバインディングが入る", func(t *testing.T) {
+		// The set request has a binding of the role with the member, and the rest of
+		// the policy as it was.
 		t.Skip("not implemented")
 	})
 	t.Run("ロールに条件なしのバインディングがあれば、そこにメンバーを足す", func(t *testing.T) {
 		// The number of bindings does not grow, and the member is the last of the
-		// binding. The policy read has a conditional binding too, like
-		// with_condition.json, and the body still has it with its title,
-		// description and expression. A write that dropped a condition would change
-		// who has access.
+		// binding. The get response has a conditional binding too, like
+		// with_condition.json, and the set request still has it with its title,
+		// description and expression. A set request that dropped a condition would
+		// change who has access.
 		t.Skip("not implemented")
 	})
 	t.Run("ロールに条件付きのバインディングしかなければ、条件なしを新しく作る", func(t *testing.T) {
@@ -164,14 +165,14 @@ func TestIAMClient_AddBinding(t *testing.T) {
 		// made, and the conditional one goes back as it was.
 		t.Skip("not implemented")
 	})
-	t.Run("すでにあれば書き込まずに成功する", func(t *testing.T) {
-		// No error, and the fake has seen no setIamPolicy.
+	t.Run("すでにあれば、set request を送らずに成功する", func(t *testing.T) {
+		// No error, and the fake has seen no set request.
 		t.Skip("not implemented")
 	})
 }
 
 func TestIAMClient_RemoveBinding(t *testing.T) {
-	t.Run("メンバーを外して書き込む", func(t *testing.T) {
+	t.Run("メンバーを外した set request を送る", func(t *testing.T) {
 		// The other members of the binding, and the other bindings, stay.
 		t.Skip("not implemented")
 	})
@@ -184,10 +185,10 @@ func TestIAMClient_RemoveBinding(t *testing.T) {
 		// binding goes back with its condition.
 		t.Skip("not implemented")
 	})
-	t.Run("見つからなければ ErrBindingNotFound で、書き込まない", func(t *testing.T) {
-		// errors.Is finds ErrBindingNotFound, and the fake has seen no
-		// setIamPolicy. A member that is only in a conditional binding of the role
-		// counts as not found.
+	t.Run("見つからなければ ErrBindingNotFound で、set request を送らない", func(t *testing.T) {
+		// errors.Is finds ErrBindingNotFound, and the fake has seen no set request.
+		// A member that is only in a conditional binding of the role counts as not
+		// found.
 		t.Skip("not implemented")
 	})
 	t.Run("最後の owner を外すと ErrLastOwner", func(t *testing.T) {
@@ -198,7 +199,7 @@ func TestIAMClient_RemoveBinding(t *testing.T) {
 }
 
 func TestIAMClient_updatePolicy(t *testing.T) {
-	// addViewer changes the policy, so that updatePolicy has something to write.
+	// addViewer changes the policy, so that updatePolicy has a change to set.
 	addViewer := func(p *Policy) error {
 		p.Bindings = append(p.Bindings, Binding{Role: "roles/viewer", Members: []string{"user:alice@example.com"}})
 		return nil
@@ -206,15 +207,15 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 	ok := func(p *cloudresourcemanager.Policy) fakeIAMResponse {
 		return fakeIAMResponse{status: http.StatusOK, policy: p}
 	}
-	// Fake answer: the write worked. Its content is ignored.
-	written := ok(&cloudresourcemanager.Policy{})
+	// Fake set response: it worked. Its content is ignored.
+	setOK := ok(&cloudresourcemanager.Policy{})
 
-	t.Run("書き込みには、読んだときの etag が付く", func(t *testing.T) {
+	t.Run("set request には、get response の etag が付く", func(t *testing.T) {
 		// Without it, the API can't tell that someone else changed the policy after
-		// we read it, and the write would overwrite that change.
+		// our get request, and the set request would overwrite that change.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
-			[]fakeIAMResponse{written}) // the write works (answer ignored)
+			[]fakeIAMResponse{setOK}) // answer ignored
 		client := newTestIAMClient(t, srv.URL)
 
 		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
@@ -229,12 +230,12 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("request policy = %+v, want etag %q", p, "etag-1")
 		}
 	})
-	t.Run("書き込みは、読んだ version に関わらず version 3 になる", func(t *testing.T) {
+	t.Run("set request の version は、get response の version に関わらず 3 になる", func(t *testing.T) {
 		// Google answers version 1 for a policy without conditions, even if we ask
-		// for 3. So always write version 3, or conditions get dropped.
+		// for 3. So always set version 3, or conditions get dropped.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
-			[]fakeIAMResponse{written}) // the write works (answer ignored)
+			[]fakeIAMResponse{setOK}) // answer ignored
 		client := newTestIAMClient(t, srv.URL)
 
 		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
@@ -249,12 +250,12 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("request policy = %+v, want version 3", p)
 		}
 	})
-	t.Run("書き込みの updateMask は bindings と etag だけ", func(t *testing.T) {
-		// Policy has no audit-log settings (audit configs). The mask keeps the write
-		// from touching them.
+	t.Run("set request の updateMask は bindings と etag だけ", func(t *testing.T) {
+		// Policy has no audit-log settings (audit configs). The mask keeps the set
+		// request from touching them.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
-			[]fakeIAMResponse{written}) // the write works (answer ignored)
+			[]fakeIAMResponse{setOK}) // answer ignored
 		client := newTestIAMClient(t, srv.URL)
 
 		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
@@ -269,7 +270,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("request updateMask = %q, want %q", reqs[0].UpdateMask, "bindings,etag")
 		}
 	})
-	t.Run("update が触れなかった条件付きバインディングは、条件ごと書き込みに入る", func(t *testing.T) {
+	t.Run("update が触れなかった条件付きバインディングは、条件ごと set request に入る", func(t *testing.T) {
 		// Without its condition, the role would be granted all the time.
 		condition := &cloudresourcemanager.Expr{
 			Title:       "condition title",
@@ -281,7 +282,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
 				{Role: "roles/bigquery.jobUser", Members: []string{"user:dave@example.com"}, Condition: condition},
 			}})},
-			[]fakeIAMResponse{written}) // the write works (answer ignored)
+			[]fakeIAMResponse{setOK}) // answer ignored
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -306,9 +307,9 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("request bindings = %s, want %s", gotJSON, wantJSON)
 		}
 	})
-	t.Run("変更がなければ書き込まない", func(t *testing.T) {
-		// update leaves the policy equal to the one read, so there is no
-		// setIamPolicy, and the etag is not spent on a write that changes nothing.
+	t.Run("変更がなければ set request を送らない", func(t *testing.T) {
+		// update leaves the policy as the get response had it, so no set request is
+		// sent, and the etag is not spent on a set that changes nothing.
 		srv := newFakeIAMServer(t, []fakeIAMResponse{ok(&cloudresourcemanager.Policy{
 			Version: 1, Etag: "etag-1",
 			Bindings: []*cloudresourcemanager.Binding{{Role: "roles/viewer", Members: []string{"user:alice@example.com"}}},
@@ -327,14 +328,14 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
 		}
 	})
-	t.Run("Members の要素を直接書き換えても、変更として書き込まれる", func(t *testing.T) {
+	t.Run("Members の要素を直接書き換えても、変更として set request が送られる", func(t *testing.T) {
 		// Without cloning, both policies share the Members array. A change in place
 		// would then alter the policy compared with too, and look like no change.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
 				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
 			}})},
-			[]fakeIAMResponse{written}) // the write works (answer ignored)
+			[]fakeIAMResponse{setOK}) // answer ignored
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -350,13 +351,13 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 	})
 
 	// The guard.
-	ownerRead := func(owners ...string) fakeIAMResponse {
+	getWithOwners := func(owners ...string) fakeIAMResponse {
 		return ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
 			{Role: "roles/owner", Members: owners},
 		}})
 	}
-	t.Run("最後の owner を外す変更は、書き込まずにエラーにする", func(t *testing.T) {
-		srv := newFakeIAMServer(t, []fakeIAMResponse{ownerRead("user:alice@example.com")}, nil)
+	t.Run("最後の owner を外す変更は、set request を送らずにエラーにする", func(t *testing.T) {
+		srv := newFakeIAMServer(t, []fakeIAMResponse{getWithOwners("user:alice@example.com")}, nil)
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -371,11 +372,11 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
 		}
 	})
-	t.Run("owner が複数いて、一部を外す変更は書き込む", func(t *testing.T) {
-		// Two owners, and update removes one. The write goes out.
+	t.Run("owner が複数いて、一部を外す変更は set request を送る", func(t *testing.T) {
+		// Two owners, and update removes one. The set request goes out.
 		srv := newFakeIAMServer(t,
-			[]fakeIAMResponse{ownerRead("user:alice@example.com", "user:bob@example.com")},
-			[]fakeIAMResponse{written}) // the write works (answer ignored)
+			[]fakeIAMResponse{getWithOwners("user:alice@example.com", "user:bob@example.com")},
+			[]fakeIAMResponse{setOK}) // answer ignored
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -389,12 +390,12 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("got %d setIamPolicy requests, want 1", len(reqs))
 		}
 	})
-	t.Run("owner を別のメンバーに入れ替える変更は書き込む", func(t *testing.T) {
+	t.Run("owner を別のメンバーに入れ替える変更は set request を送る", func(t *testing.T) {
 		// update removes the only owner and adds another in the same call. The
-		// result still has an owner, so the write goes out.
+		// result still has an owner, so the set request goes out.
 		srv := newFakeIAMServer(t,
-			[]fakeIAMResponse{ownerRead("user:alice@example.com")},
-			[]fakeIAMResponse{written}) // the write works (answer ignored)
+			[]fakeIAMResponse{getWithOwners("user:alice@example.com")},
+			[]fakeIAMResponse{setOK}) // answer ignored
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -408,12 +409,12 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("got %d setIamPolicy requests, want 1", len(reqs))
 		}
 	})
-	t.Run("もともと owner がいないポリシーは、そのまま書き込む", func(t *testing.T) {
-		// The policy read has no owner, and update changes something else. The
-		// guard does not apply, and the write goes out.
+	t.Run("もともと owner がいないポリシーは、そのまま set request を送る", func(t *testing.T) {
+		// The get response has no owner, and update changes something else. The
+		// guard does not apply, and the set request goes out.
 		srv := newFakeIAMServer(t,
 			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})},
-			[]fakeIAMResponse{written}) // the write works (answer ignored)
+			[]fakeIAMResponse{setOK}) // answer ignored
 		client := newTestIAMClient(t, srv.URL)
 
 		if err := client.updatePolicy(context.Background(), "my-project", addViewer); err != nil {
@@ -427,7 +428,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		// A deleted member is left in roles/owner and grants nothing. update removes
 		// the other owner, so no owner that counts is left, and it is ErrLastOwner.
 		srv := newFakeIAMServer(t,
-			[]fakeIAMResponse{ownerRead("user:alice@example.com", "deleted:user:old@example.com?uid=123456789")}, nil)
+			[]fakeIAMResponse{getWithOwners("user:alice@example.com", "deleted:user:old@example.com?uid=123456789")}, nil)
 		client := newTestIAMClient(t, srv.URL)
 
 		err := client.updatePolicy(context.Background(), "my-project", func(p *Policy) error {
@@ -443,23 +444,27 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 	})
 
 	// Conflicts and errors.
-	conflict := fakeIAMResponse{
+	setConflict := fakeIAMResponse{
 		status: http.StatusConflict,
 		body:   `{"error":{"code":409,"message":"There were concurrent policy changes.","status":"ABORTED"}}`,
 	}
-	viewerRead := func(etag string, viewers ...string) fakeIAMResponse {
+	getWithViewers := func(etag string, viewers ...string) fakeIAMResponse {
 		return ok(&cloudresourcemanager.Policy{Version: 1, Etag: etag, Bindings: []*cloudresourcemanager.Binding{
 			{Role: "roles/viewer", Members: viewers},
 		}})
 	}
-	t.Run("etag が競合したら読み直して update をやり直す", func(t *testing.T) {
-		// The first setIamPolicy answers 409 ABORTED. The client reads again, calls
-		// update again with the policy it read this time, and writes with the new
-		// etag. The second write works. update was called twice, on the first and
-		// on the second policy.
+	t.Run("etag が競合したら get し直して update をやり直す", func(t *testing.T) {
+		// The second get response has a new etag and one more viewer. update must see
+		// that viewer, and the second set request must carry the new etag.
 		srv := newFakeIAMServer(t,
-			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com"), viewerRead("etag-2", "user:alice@example.com", "user:bob@example.com")},
-			[]fakeIAMResponse{conflict, written}) // the first write conflicts, then one works (answer ignored)
+			[]fakeIAMResponse{
+				getWithViewers("etag-1", "user:alice@example.com"),                         // 1st get response
+				getWithViewers("etag-2", "user:alice@example.com", "user:bob@example.com"), // 2nd get response
+			},
+			[]fakeIAMResponse{
+				setConflict, // 1st set response
+				setOK,       // 2nd set response (answer ignored)
+			})
 		client := newTestIAMClient(t, srv.URL)
 
 		var viewersSeen []int
@@ -480,15 +485,23 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Fatalf("got %d setIamPolicy requests, want 2", len(reqs))
 		}
 		if got := reqs[1].Policy; got.Etag != "etag-2" || len(got.Bindings[0].Members) != 2 {
-			t.Errorf("second write = %+v, want etag-2 and the 2 viewers of the second read", got)
+			t.Errorf("second set request = %+v, want etag-2 and the 2 viewers of the second get response", got)
 		}
 	})
 	t.Run("競合が続いたら上限で諦める", func(t *testing.T) {
-		// setIamPolicy answers 409 every time. The client stops at the limit of
-		// attempts, the error says so, and update was called that many times.
+		// Every set response is 409. The client stops at the limit of attempts, the
+		// error says so, and update was called that many times.
 		srv := newFakeIAMServer(t,
-			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com"), viewerRead("etag-2", "user:alice@example.com"), viewerRead("etag-3", "user:alice@example.com")},
-			[]fakeIAMResponse{conflict, conflict, conflict})
+			[]fakeIAMResponse{
+				getWithViewers("etag-1", "user:alice@example.com"), // 1st get response
+				getWithViewers("etag-2", "user:alice@example.com"), // 2nd get response
+				getWithViewers("etag-3", "user:alice@example.com"), // 3rd get response
+			},
+			[]fakeIAMResponse{
+				setConflict, // 1st set response
+				setConflict, // 2nd set response
+				setConflict, // 3rd set response
+			})
 		client := newTestIAMClient(t, srv.URL)
 
 		calls := 0
@@ -517,8 +530,16 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		// the same each time. The test checks the total from below, so it can't fail
 		// for being slow.
 		srv := newFakeIAMServer(t,
-			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com"), viewerRead("etag-2", "user:alice@example.com"), viewerRead("etag-3", "user:alice@example.com")},
-			[]fakeIAMResponse{conflict, conflict, written}) // two writes conflict, then one works (answer ignored)
+			[]fakeIAMResponse{
+				getWithViewers("etag-1", "user:alice@example.com"), // 1st get response
+				getWithViewers("etag-2", "user:alice@example.com"), // 2nd get response
+				getWithViewers("etag-3", "user:alice@example.com"), // 3rd get response
+			},
+			[]fakeIAMResponse{
+				setConflict, // 1st set response
+				setConflict, // 2nd set response
+				setOK,       // 3rd set response (answer ignored)
+			})
 		client := newTestIAMClient(t, srv.URL)
 		client.retryWait = 30 * time.Millisecond
 
@@ -532,10 +553,10 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 	})
 	t.Run("待っている間にコンテキストがキャンセルされたら戻る", func(t *testing.T) {
 		// Cancelled during a wait, the client returns at once with the context
-		// error, and does not read or write again.
+		// error, and sends no more get or set requests.
 		srv := newFakeIAMServer(t,
-			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com")},
-			[]fakeIAMResponse{conflict})
+			[]fakeIAMResponse{getWithViewers("etag-1", "user:alice@example.com")},
+			[]fakeIAMResponse{setConflict})
 		client := newTestIAMClient(t, srv.URL)
 		client.retryWait = time.Hour
 
@@ -565,10 +586,10 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		}
 	})
 	t.Run("競合以外のエラーは再試行しない", func(t *testing.T) {
-		// setIamPolicy answers 403. The error comes back at once, wrapping the
-		// *googleapi.Error, and there is no second read.
+		// The set response is 403. The error comes back at once, wrapping the
+		// *googleapi.Error, and there is no second get request.
 		srv := newFakeIAMServer(t,
-			[]fakeIAMResponse{viewerRead("etag-1", "user:alice@example.com")},
+			[]fakeIAMResponse{getWithViewers("etag-1", "user:alice@example.com")},
 			[]fakeIAMResponse{{status: http.StatusForbidden, body: `{"error":{"code":403,"status":"PERMISSION_DENIED"}}`}})
 		client := newTestIAMClient(t, srv.URL)
 
@@ -582,8 +603,8 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("got %d getIamPolicy requests, want 1", n)
 		}
 	})
-	t.Run("update がエラーを返したら書き込まない", func(t *testing.T) {
-		// The error of update comes back, and the fake has seen no setIamPolicy.
+	t.Run("update がエラーを返したら set request を送らない", func(t *testing.T) {
+		// The error of update comes back, and the fake has seen no set request.
 		srv := newFakeIAMServer(t, []fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1"})}, nil)
 		client := newTestIAMClient(t, srv.URL)
 		boom := errors.New("boom")
@@ -599,9 +620,9 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
 		}
 	})
-	t.Run("読み取りに失敗したら update も書き込みもしない", func(t *testing.T) {
-		// getIamPolicy answers 500. update was not called, and there was no
-		// setIamPolicy.
+	t.Run("get request が失敗したら update も set request もしない", func(t *testing.T) {
+		// The get response is 500. update was not called, and there was no set
+		// request.
 		srv := newFakeIAMServer(t, []fakeIAMResponse{{status: http.StatusInternalServerError}}, nil)
 		client := newTestIAMClient(t, srv.URL)
 
