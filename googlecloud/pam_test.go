@@ -102,3 +102,29 @@ func TestPAMClient_GetEntitlement(t *testing.T) {
 		t.Skip("not written yet")
 	})
 }
+
+func TestPAMClient_CheckOnboarding(t *testing.T) {
+	t.Run("globalリージョンでサービスエージェントを返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("問題がなければ指摘は空になる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("IAMに拒否された権限を返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("1つの指摘に複数の権限があれば全て返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("指摘が複数あれば全て返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("エラーはそのまま返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+}
