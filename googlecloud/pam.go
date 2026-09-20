@@ -3,11 +3,10 @@ package googlecloud
 import (
 	"context"
 	"errors"
-	"fmt"
-	"path"
 	"time"
 
 	privilegedaccessmanager "cloud.google.com/go/privilegedaccessmanager/apiv1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
