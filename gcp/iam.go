@@ -168,7 +168,21 @@ func (c *IAMClient) getPolicy(ctx context.Context, resource string) (*cloudresou
 // "user:alice@example.com". It does nothing, and writes nothing, if the member has
 // the role already.
 func (c *IAMClient) AddBinding(ctx context.Context, projectID, role, member string) error {
-	return nil
+	return c.updatePolicy(ctx, projectID, func(p *Policy) error {
+		for i, b := range p.Bindings {
+			// A binding with a condition grants the role only while it holds, so it
+			// is not the one to put the member in, and does not count if it has it.
+			if b.Role != role || b.Condition != nil {
+				continue
+			}
+			if !slices.Contains(b.Members, member) {
+				p.Bindings[i].Members = append(b.Members, member)
+			}
+			return nil
+		}
+		p.Bindings = append(p.Bindings, Binding{Role: role, Members: []string{member}})
+		return nil
+	})
 }
 
 // RemoveBinding takes role from member on a project, like gcloud's

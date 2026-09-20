@@ -45,6 +45,29 @@ func (r fakeIAMResponse) write(w http.ResponseWriter) {
 	json.NewEncoder(w).Encode(r.policy)
 }
 
+// ok is a response with status 200 and the policy p.
+func ok(p *cloudresourcemanager.Policy) fakeIAMResponse {
+	return fakeIAMResponse{status: http.StatusOK, policy: p}
+}
+
+// setOK is a set response that worked. Its content is ignored.
+var setOK = ok(&cloudresourcemanager.Policy{})
+
+// checkSetRequestBindings checks the bindings of the one set request the fake got.
+func checkSetRequestBindings(t *testing.T, srv *fakeIAMServer, want []*cloudresourcemanager.Binding) {
+	t.Helper()
+
+	reqs := srv.SetRequests()
+	if len(reqs) != 1 {
+		t.Fatalf("got %d setIamPolicy requests, want 1", len(reqs))
+	}
+	if got := reqs[0].Policy.Bindings; !reflect.DeepEqual(got, want) {
+		gotJSON, _ := json.Marshal(got)
+		wantJSON, _ := json.Marshal(want)
+		t.Errorf("set request bindings = %s, want %s", gotJSON, wantJSON)
+	}
+}
+
 // fakeIAMServer fakes POST /v3/projects/my-project:getIamPolicy and
 // :setIamPolicy, and records what it receives. Any other method or path is not
 // served, so a client that uses one fails.
@@ -146,28 +169,81 @@ func TestIAMClient_GetPolicy(t *testing.T) {
 }
 
 func TestIAMClient_AddBinding(t *testing.T) {
+	condition := &cloudresourcemanager.Expr{
+		Title:       "condition title",
+		Description: "condition description",
+		Expression:  `request.time < timestamp("2030-01-01T00:00:00Z")`,
+	}
+
 	t.Run("ロールがなければ、set request に新しいバインディングが入る", func(t *testing.T) {
-		// The set request has a binding of the role with the member, and the rest of
-		// the policy as it was.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			}})},
+			[]fakeIAMResponse{setOK}) // answer ignored
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.AddBinding(context.Background(), "my-project", "roles/editor", "user:bob@example.com"); err != nil {
+			t.Fatalf("AddBinding() = %v, want nil error", err)
+		}
+
+		checkSetRequestBindings(t, srv, []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			{Role: "roles/editor", Members: []string{"user:bob@example.com"}},
+		})
 	})
 	t.Run("ロールに条件なしのバインディングがあれば、そこにメンバーを足す", func(t *testing.T) {
-		// The number of bindings does not grow, and the member is the last of the
-		// binding. The get response has a conditional binding too, like
-		// with_condition.json, and the set request still has it with its title,
-		// description and expression. A set request that dropped a condition would
-		// change who has access.
-		t.Skip("not implemented")
+		// The role has a conditional binding too, listed first, which stays as it was.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 3, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:dave@example.com"}, Condition: condition},
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			}})},
+			[]fakeIAMResponse{setOK}) // answer ignored
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.AddBinding(context.Background(), "my-project", "roles/viewer", "user:bob@example.com"); err != nil {
+			t.Fatalf("AddBinding() = %v, want nil error", err)
+		}
+
+		checkSetRequestBindings(t, srv, []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: []string{"user:dave@example.com"}, Condition: condition},
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com", "user:bob@example.com"}},
+		})
 	})
 	t.Run("ロールに条件付きのバインディングしかなければ、条件なしを新しく作る", func(t *testing.T) {
-		// The member is not put into the conditional binding, which would give it
-		// the role only while the condition holds. A new unconditional binding is
-		// made, and the conditional one goes back as it was.
-		t.Skip("not implemented")
+		// Putting the member into the conditional binding would grant the role only
+		// while the condition holds. That is so even for a member that is in it.
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 3, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}, Condition: condition},
+			}})},
+			[]fakeIAMResponse{setOK}) // answer ignored
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.AddBinding(context.Background(), "my-project", "roles/viewer", "user:alice@example.com"); err != nil {
+			t.Fatalf("AddBinding() = %v, want nil error", err)
+		}
+
+		checkSetRequestBindings(t, srv, []*cloudresourcemanager.Binding{
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com"}, Condition: condition},
+			{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+		})
 	})
 	t.Run("すでにあれば、set request を送らずに成功する", func(t *testing.T) {
-		// No error, and the fake has seen no set request.
-		t.Skip("not implemented")
+		srv := newFakeIAMServer(t,
+			[]fakeIAMResponse{ok(&cloudresourcemanager.Policy{Version: 1, Etag: "etag-1", Bindings: []*cloudresourcemanager.Binding{
+				{Role: "roles/viewer", Members: []string{"user:alice@example.com"}},
+			}})}, nil)
+		client := newTestIAMClient(t, srv.URL)
+
+		if err := client.AddBinding(context.Background(), "my-project", "roles/viewer", "user:alice@example.com"); err != nil {
+			t.Fatalf("AddBinding() = %v, want nil error", err)
+		}
+
+		if reqs := srv.SetRequests(); len(reqs) != 0 {
+			t.Errorf("got %d setIamPolicy requests, want none", len(reqs))
+		}
 	})
 }
 
@@ -204,11 +280,6 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 		p.Bindings = append(p.Bindings, Binding{Role: "roles/viewer", Members: []string{"user:alice@example.com"}})
 		return nil
 	}
-	ok := func(p *cloudresourcemanager.Policy) fakeIAMResponse {
-		return fakeIAMResponse{status: http.StatusOK, policy: p}
-	}
-	// Fake set response: it worked. Its content is ignored.
-	setOK := ok(&cloudresourcemanager.Policy{})
 
 	t.Run("set request には、get response の etag が付く", func(t *testing.T) {
 		// Without it, the API can't tell that someone else changed the policy after
@@ -297,15 +368,7 @@ func TestIAMClient_updatePolicy(t *testing.T) {
 			{Role: "roles/viewer", Members: []string{"user:alice@example.com", "user:bob@example.com"}},
 			{Role: "roles/bigquery.jobUser", Members: []string{"user:dave@example.com"}, Condition: condition},
 		}
-		reqs := srv.SetRequests()
-		if len(reqs) != 1 {
-			t.Fatalf("got %d setIamPolicy requests, want 1", len(reqs))
-		}
-		if got := reqs[0].Policy.Bindings; !reflect.DeepEqual(got, want) {
-			gotJSON, _ := json.Marshal(got)
-			wantJSON, _ := json.Marshal(want)
-			t.Errorf("request bindings = %s, want %s", gotJSON, wantJSON)
-		}
+		checkSetRequestBindings(t, srv, want)
 	})
 	t.Run("変更がなければ set request を送らない", func(t *testing.T) {
 		// update leaves the policy as the get response had it, so no set request is
