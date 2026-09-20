@@ -85,7 +85,7 @@ func TestProjectsClient_Lifecycle_Integration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	quotaProject := requireEnv(t, "GOOGLE_TEST_QUOTA_PROJECT")
+	quotaProject := requireEnv(t, "GOOGLECLOUD_TEST_QUOTA_PROJECT")
 	client, err := NewProjectsClient(ctx, option.WithQuotaProject(quotaProject))
 	if err != nil {
 		t.Fatalf("NewProjectsClient: %v", err)
