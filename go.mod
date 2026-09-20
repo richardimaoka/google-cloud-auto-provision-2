@@ -3,8 +3,10 @@ module github.com/yusni/google-cloud-auto-provision-2
 go 1.26.3
 
 require (
+	cloud.google.com/go/privilegedaccessmanager v1.1.0
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.298.0
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -13,7 +15,6 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/longrunning v1.2.0 // indirect
-	cloud.google.com/go/privilegedaccessmanager v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -38,5 +39,4 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260715232425-e75dac1f907d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/grpc v1.83.2 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 )
