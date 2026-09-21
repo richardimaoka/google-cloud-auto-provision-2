@@ -13,13 +13,18 @@ import (
 )
 
 type ProjectCreationRequest struct {
+	DisplayName    string
 	Requester      Email
 	DeveloperGroup GoogleGroup
 }
 
 // NewProjectCreationRequest returns a ProjectCreationRequest, or an error if
-// requester or developerGroup's Email is the zero Email.
-func NewProjectCreationRequest(requester Email, developerGroup GoogleGroup) (ProjectCreationRequest, error) {
+// displayName does not meet Google Cloud's project display-name requirements,
+// requester is the zero Email, or developerGroup's Email is the zero Email.
+func NewProjectCreationRequest(displayName string, requester Email, developerGroup GoogleGroup) (ProjectCreationRequest, error) {
+	if !validProjectDisplayName(displayName) {
+		return ProjectCreationRequest{}, fmt.Errorf("invalid project display name %q", displayName)
+	}
 	if requester == (Email{}) {
 		return ProjectCreationRequest{}, errors.New("requester is empty")
 	}
@@ -27,9 +32,27 @@ func NewProjectCreationRequest(requester Email, developerGroup GoogleGroup) (Pro
 		return ProjectCreationRequest{}, errors.New("developer group email is empty")
 	}
 	return ProjectCreationRequest{
+		DisplayName:    displayName,
 		Requester:      requester,
 		DeveloperGroup: developerGroup,
 	}, nil
+}
+
+// validProjectDisplayName reports whether name meets the Google Cloud project
+// display-name requirements. It is 4 to 30 ASCII characters, uses only the
+// permitted characters, and ends with a letter or digit.
+func validProjectDisplayName(name string) bool {
+	if len(name) < 4 || len(name) > 30 {
+		return false
+	}
+	for i := range len(name) {
+		c := name[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '\'' || c == '"' || c == ' ' || c == '!') {
+			return false
+		}
+	}
+	last := name[len(name)-1]
+	return (last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') || (last >= '0' && last <= '9')
 }
 
 // minDeveloperGroupMembers is the fewest members a developer group may have.
