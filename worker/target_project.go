@@ -11,6 +11,13 @@ import (
 // from the state recorded for id up to StateInitialSetupDone.
 func RunProjectCreation(ctx context.Context, id domain.ProjectCreationID) error {
 	// step:
+	//   記録済みのdomain.ProjectCreationRequestを、webappと同じdomainの判定関数で再判定。
+	//   受理後にグループ構成などが変わっている可能性があるため。判定に必要な情報はGoogle Cloudから取得。
+	//   問題があれば以下をBigQueryに記録し、エラーを返却
+	//     - ProjectCreationProgress, State = "creating_project", status = "error"
+	//     - 問題と推奨解決法
+
+	// step:
 	//   プロジェクト作成requestをGoogle Cloudに送信。
 	//   問題があれば以下をBigQueryに記録し、エラーを返却
 	//     - ProjectCreationProgress, State = "creating_project", status = "error"

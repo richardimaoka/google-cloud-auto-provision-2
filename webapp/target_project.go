@@ -30,7 +30,8 @@ type InitiateProjectCreationResponse struct {
 func InitiateProjectCreation(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
 	// step:
 	//   引数からdomain.ProjectCreationRequestを構成し、バリデーション。
-	//   構成に必要な情報はGoogle Cloudから取得。
+	//   構成と判定に必要な情報(DeveloperGroupのメンバー、break-glassグループのメンバー等)はGoogle Cloudから取得。
+	//   判定はdomainの判定関数(I/Oなし、取得した情報を引数で受け取る)で行う。workerも同じ関数で再判定する。
 	//   問題があれば、BigQueryには記録せず、問題と推奨解決法とともにエラーを返却。
 	//   (ProjectCreationProgressはdomain.ProjectCreationRequestを必須で持つため、構成前には記録できない)
 

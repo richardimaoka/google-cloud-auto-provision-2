@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Problems and the recommendation each one carries:
 //
@@ -58,6 +61,54 @@ type Recommendation interface {
 	Code() RecommendationCode
 	// Description returns a human-readable explanation of the action.
 	Description() string
+}
+
+// FindProjectCreationProblems returns every known problem that blocks creating
+// the project for request, or nil if there is none. It does no I/O: the caller
+// passes the developer group's members (in request), the organization and the
+// break-glass groups' members as fetched from Google Cloud.
+func FindProjectCreationProblems(request ProjectCreationRequest, organization Organization, breakGlass BreakGlass) []ProjectCreationProblem {
+	var problems []ProjectCreationProblem
+	developerGroup := request.DeveloperGroup
+
+	if !sameDomain(request.Requester, organization) {
+		problems = append(problems, NewRequesterDomainMismatch(request.Requester, organization.Domain()))
+	}
+	if !sameDomain(developerGroup.Email(), organization) {
+		problems = append(problems, NewDeveloperGroupDomainMismatch(developerGroup.Email(), organization.Domain()))
+	}
+
+	members := developerGroup.Members()
+	if len(members) < minDeveloperGroupMembers {
+		problems = append(problems, NewDeveloperGroupTooFewMembers(developerGroup.Email(), len(members)))
+	}
+	for _, member := range members {
+		if !sameDomain(member.Email(), organization) {
+			problems = append(problems, NewDeveloperGroupMemberDomainMismatch(developerGroup.Email(), member.Email(), organization.Domain()))
+		}
+		if groupHasMember(breakGlass.UltimateGroup(), member.Email()) {
+			problems = append(problems, NewDeveloperInUltimateBreakGlass(member.Email(), developerGroup.Email(), breakGlass.UltimateGroup().Email()))
+		}
+		if groupHasMember(breakGlass.EmergencyGroup(), member.Email()) {
+			problems = append(problems, NewDeveloperInEmergencyBreakGlass(member.Email(), developerGroup.Email(), breakGlass.EmergencyGroup().Email()))
+		}
+	}
+	return problems
+}
+
+// sameDomain reports whether e is in the organization's domain, ignoring case.
+func sameDomain(e Email, organization Organization) bool {
+	return strings.EqualFold(e.Domain(), organization.Domain())
+}
+
+// groupHasMember reports whether email is a member of group, ignoring case.
+func groupHasMember(group GoogleGroup, email Email) bool {
+	for _, m := range group.Members() {
+		if strings.EqualFold(m.Email().String(), email.String()) {
+			return true
+		}
+	}
+	return false
 }
 
 // DeveloperInUltimateBreakGlass is a developer group member who is also in the
