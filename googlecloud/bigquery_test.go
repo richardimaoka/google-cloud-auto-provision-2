@@ -108,21 +108,120 @@ func TestBigQueryClient_GetDataset(t *testing.T) {
 	})
 }
 
+// newFakeBigQueryTablesServer fakes the two BigQuery endpoints that GetTable
+// relies on. It answers tableStatus for
+// GET /projects/my-project/datasets/my_dataset/tables/my_table, returning table
+// when tableStatus is 200, and datasetStatus for
+// GET /projects/my-project/datasets/my_dataset, which GetTable asks after a 404
+// of the table. Any other ID gets a 404.
+func newFakeBigQueryTablesServer(t *testing.T, tableStatus int, table *bigquery.Table, datasetStatus int) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/projects/my-project/datasets/my_dataset/tables/my_table", func(w http.ResponseWriter, r *http.Request) {
+		if tableStatus != http.StatusOK {
+			w.WriteHeader(tableStatus)
+			return
+		}
+		json.NewEncoder(w).Encode(table)
+	})
+	mux.HandleFunc("/projects/my-project/datasets/my_dataset", func(w http.ResponseWriter, r *http.Request) {
+		if datasetStatus != http.StatusOK {
+			w.WriteHeader(datasetStatus)
+			return
+		}
+		json.NewEncoder(w).Encode(&bigquery.Dataset{
+			DatasetReference: &bigquery.DatasetReference{ProjectId: "my-project", DatasetId: "my_dataset"},
+		})
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 func TestBigQueryClient_GetTable(t *testing.T) {
 	t.Run("存在するテーブルのIDとスキーマ（列名、型、モード）を返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryTablesServer(t, http.StatusOK, &bigquery.Table{
+			TableReference: &bigquery.TableReference{ProjectId: "my-project", DatasetId: "my_dataset", TableId: "my_table"},
+			Schema: &bigquery.TableSchema{Fields: []*bigquery.TableFieldSchema{
+				{Name: "request_id", Type: "STRING", Mode: "REQUIRED"},
+				{Name: "created_at", Type: "TIMESTAMP", Mode: "NULLABLE"},
+				{Name: "members", Type: "STRING", Mode: "REPEATED"},
+			}},
+		}, http.StatusOK)
+		client := newTestBigQueryClient(t, srv)
+
+		got, err := client.GetTable(context.Background(), "my-project", "my_dataset", "my_table")
+		if err != nil {
+			t.Fatalf("GetTable() = %v, want nil error", err)
+		}
+		want := &Table{ID: "my_table", Schema: []Field{
+			{Name: "request_id", Type: "STRING", Mode: "REQUIRED"},
+			{Name: "created_at", Type: "TIMESTAMP", Mode: "NULLABLE"},
+			{Name: "members", Type: "STRING", Mode: "REPEATED"},
+		}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("GetTable() = %+v, want %+v", got, want)
+		}
 	})
 	t.Run("存在しないテーブルはエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryTablesServer(t, http.StatusNotFound, nil, http.StatusOK)
+		client := newTestBigQueryClient(t, srv)
+
+		got, err := client.GetTable(context.Background(), "my-project", "my_dataset", "my_table")
+		if !errors.Is(err, ErrTableNotFound) {
+			t.Fatalf("GetTable() error = %v, want ErrTableNotFound", err)
+		}
+		if got != nil {
+			t.Errorf("GetTable() = %+v on error, want nil", got)
+		}
 	})
 	t.Run("存在しないデータセットのテーブルは、テーブルが無い場合と区別できるエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryTablesServer(t, http.StatusNotFound, nil, http.StatusNotFound)
+		client := newTestBigQueryClient(t, srv)
+
+		got, err := client.GetTable(context.Background(), "my-project", "my_dataset", "my_table")
+		if !errors.Is(err, ErrDatasetNotFound) {
+			t.Fatalf("GetTable() error = %v, want ErrDatasetNotFound", err)
+		}
+		if errors.Is(err, ErrTableNotFound) {
+			t.Errorf("GetTable() error = %v, want it not to be ErrTableNotFound", err)
+		}
+		if got != nil {
+			t.Errorf("GetTable() = %+v on error, want nil", got)
+		}
 	})
 	t.Run("権限不足はエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryTablesServer(t, http.StatusForbidden, nil, http.StatusOK)
+		client := newTestBigQueryClient(t, srv)
+
+		got, err := client.GetTable(context.Background(), "my-project", "my_dataset", "my_table")
+		if err == nil {
+			t.Fatal("GetTable() = nil error, want error")
+		}
+		if !strings.Contains(err.Error(), "get table") {
+			t.Errorf("GetTable() error = %q, want it to contain %q", err, "get table")
+		}
+		if errors.Is(err, ErrTableNotFound) || errors.Is(err, ErrDatasetNotFound) {
+			t.Errorf("GetTable() error = %v, want it not to be a not-found error", err)
+		}
+		if got != nil {
+			t.Errorf("GetTable() = %+v on error, want nil", got)
+		}
 	})
 	t.Run("エラーから *googleapi.Error を取り出せる", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryTablesServer(t, http.StatusNotFound, nil, http.StatusOK)
+		client := newTestBigQueryClient(t, srv)
+
+		_, err := client.GetTable(context.Background(), "my-project", "my_dataset", "my_table")
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) {
+			t.Fatalf("GetTable() error = %v, want it to wrap a *googleapi.Error", err)
+		}
+		if gerr.Code != http.StatusNotFound {
+			t.Errorf("googleapi.Error.Code = %d, want %d", gerr.Code, http.StatusNotFound)
+		}
 	})
 }
 
