@@ -23,10 +23,11 @@ var ErrEntitlementNotFound = errors.New("entitlement not found")
 // its eligible users can request for a limited time. Its fields are named after
 // the ones of the Entitlement of the privilegedaccessmanager API, and the ones
 // that a project does not use are left out.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb#Entitlement
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/projects.locations.entitlements#Entitlement
 type Entitlement struct {
-	// ID is the last part of Name.
-	ID string
-	// Name is "projects/<project>/locations/global/entitlements/<ID>".
+	// Name is "projects/<project>/locations/global/entitlements/<entitlement-id>".
 	Name string
 	// Resource is the resource the roles are granted on, in the full form the API
 	// uses, like "//cloudresourcemanager.googleapis.com/projects/my-project".
@@ -55,6 +56,9 @@ type Entitlement struct {
 
 // EntitlementRole represents a role of an entitlement, with the condition it is
 // granted under, if it has one.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb#PrivilegedAccess_GcpIamAccess_RoleBinding
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/PrivilegedAccess#RoleBinding
 type EntitlementRole struct {
 	Role string
 	// ConditionExpression is an expression in the Common Expression Language, or
@@ -65,6 +69,9 @@ type EntitlementRole struct {
 
 // ApprovalStep represents a step of approval: ApprovalsNeeded of Approvers must
 // approve a grant before it goes to the next step.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb#ManualApprovals_Step
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/folders.locations.entitlements#Entitlement.Step
 type ApprovalStep struct {
 	// Approvers are principals, in the same form as EligibleUsers.
 	Approvers       []string
