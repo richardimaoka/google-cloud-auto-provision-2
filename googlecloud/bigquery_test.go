@@ -496,19 +496,27 @@ func TestBigQueryClient_query(t *testing.T) {
 }
 
 func TestBigQueryClient_Query(t *testing.T) {
-	t.Run("結果の行を、列名をキーにした値で返す", func(t *testing.T) {
+	t.Run("SELECT の結果を、列名をキーにした行として返す", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
-	t.Run("TIMESTAMP、NULL、入れ子の列を変換する", func(t *testing.T) {
+	t.Run("TIMESTAMP を time.Time に変換する", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
-	t.Run("値はSQL文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
+	t.Run("文字列などの値を SQL 文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
 	t.Run("SQL の文法エラーは、原因が分かるエラーを返す", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
 	t.Run("存在しないテーブルはエラーを返す", func(t *testing.T) {
+		t.Skip("not implemented")
+	})
+}
+
+func TestSchemaMatchesTerraform(t *testing.T) {
+	t.Run("Terraform の project_creation_records テーブル定義と Go の ProjectCreationRecord が一致する", func(t *testing.T) {
+		// Terraform の BigQuery テーブル定義ができたら、それをパースして
+		// ProjectCreationRecord の列名、型、NULL 可否と照合する。
 		t.Skip("not implemented")
 	})
 }
@@ -523,10 +531,10 @@ func TestBigQueryClient_Insert(t *testing.T) {
 	t.Run("行が0件なら、ジョブを送らずに成功する", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
-	t.Run("値はSQL文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
+	t.Run("文字列などの値を SQL 文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
-	t.Run("不正な文字を含むテーブル名と列名は拒否する", func(t *testing.T) {
+	t.Run("不正な文字を含むテーブル名または列名は、ジョブを送らずに拒否する", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
 	t.Run("存在しないテーブルはエラーを返す", func(t *testing.T) {
@@ -538,16 +546,19 @@ func TestBigQueryClient_Upsert(t *testing.T) {
 	t.Run("キーが同じ行がなければ、新しい行を挿入する", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
-	t.Run("キーが同じ行があれば、その行を置き換える", func(t *testing.T) {
+	t.Run("キーが同じ行があれば、入力行の値で更新する", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
-	t.Run("複数行を Upsert する", func(t *testing.T) {
+	t.Run("複数行の挿入と更新を、一つのジョブで行う", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
-	t.Run("値はSQL文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
+	t.Run("行が0件なら、ジョブを送らずに成功する", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
-	t.Run("不正な文字を含むテーブル名と列名は拒否する", func(t *testing.T) {
+	t.Run("文字列などの値を SQL 文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
+		t.Skip("not implemented")
+	})
+	t.Run("不正な文字を含むテーブル名または列名は、ジョブを送らずに拒否する", func(t *testing.T) {
 		t.Skip("not implemented")
 	})
 	t.Run("存在しないテーブルはエラーを返す", func(t *testing.T) {
