@@ -76,3 +76,28 @@ func (r ProjectCreationRequest) Validate(org Organization) error {
 	}
 	return errors.Join(errs...)
 }
+
+// ProjectCreationProblemCode identifies a known problem that prevents project
+// creation from proceeding.
+type ProjectCreationProblemCode string
+
+const (
+	// ProblemDeveloperGroupMemberInUltimateBreakGlassGroup reports that a
+	// developer group member is also a member of the ultimate break-glass group.
+	ProblemDeveloperGroupMemberInUltimateBreakGlassGroup ProjectCreationProblemCode = "developer_group_member_in_ultimate_break_glass_group"
+	// ProblemDeveloperGroupMemberInEmergencyBreakGlassGroup reports that a
+	// developer group member is also a member of the emergency break-glass
+	// group.
+	ProblemDeveloperGroupMemberInEmergencyBreakGlassGroup ProjectCreationProblemCode = "developer_group_member_in_emergency_break_glass_group"
+)
+
+// RecommendationCode identifies the recommended action for a known problem.
+// It is stored with the problem as the recommendation that was presented when
+// the problem occurred.
+type RecommendationCode string
+
+const (
+	// RecommendationRemoveDeveloperGroupMember advises removing the overlapping
+	// member from the developer group.
+	RecommendationRemoveDeveloperGroupMember RecommendationCode = "remove_developer_group_member"
+)

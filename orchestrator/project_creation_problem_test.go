@@ -13,16 +13,16 @@ func TestNewProjectCreationProblem(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		code           ProjectCreationProblemCode
-		recommendation RecommendationCode
+		code           domain.ProjectCreationProblemCode
+		recommendation domain.RecommendationCode
 		details        json.RawMessage
 		wantErr        bool
 	}{
-		{name: "code、recommendation、JSONの詳細を保持する", code: ProblemDeveloperGroupMemberInBreakGlassGroup, recommendation: RecommendationRemoveDeveloperGroupMember, details: details},
-		{name: "codeが空だとエラー", recommendation: RecommendationRemoveDeveloperGroupMember, details: details, wantErr: true},
-		{name: "recommendationが空だとエラー", code: ProblemDeveloperGroupMemberInBreakGlassGroup, details: details, wantErr: true},
-		{name: "不正なJSONだとエラー", code: ProblemDeveloperGroupMemberInBreakGlassGroup, recommendation: RecommendationRemoveDeveloperGroupMember, details: json.RawMessage(`{`), wantErr: true},
-		{name: "JSONオブジェクト以外はエラー", code: ProblemDeveloperGroupMemberInBreakGlassGroup, recommendation: RecommendationRemoveDeveloperGroupMember, details: json.RawMessage(`[]`), wantErr: true},
+		{name: "code、recommendation、JSONの詳細を保持する", code: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: details},
+		{name: "codeが空だとエラー", recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: details, wantErr: true},
+		{name: "recommendationが空だとエラー", code: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, details: details, wantErr: true},
+		{name: "不正なJSONだとエラー", code: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: json.RawMessage(`{`), wantErr: true},
+		{name: "JSONオブジェクト以外はエラー", code: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: json.RawMessage(`[]`), wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -66,27 +66,39 @@ func TestProjectCreationProblem_DetailsJSONReturnsCopy(t *testing.T) {
 	}
 }
 
-func TestNewDeveloperGroupMemberInBreakGlassGroupProblem(t *testing.T) {
-	member, err := domain.NewEmail("alice@example.com")
-	if err != nil {
-		t.Fatal(err)
+func TestNewDeveloperGroupMemberInBreakGlassGroupProblems(t *testing.T) {
+	tests := []struct {
+		name     string
+		new      func(member, breakGlassGroup domain.Email) (ProjectCreationProblem, error)
+		wantCode domain.ProjectCreationProblemCode
+	}{
+		{name: "ultimate", new: NewDeveloperGroupMemberInUltimateBreakGlassGroupProblem, wantCode: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup},
+		{name: "emergency", new: NewDeveloperGroupMemberInEmergencyBreakGlassGroupProblem, wantCode: domain.ProblemDeveloperGroupMemberInEmergencyBreakGlassGroup},
 	}
-	breakGlassGroup, err := domain.NewEmail("break-glass@example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-	problem, err := NewDeveloperGroupMemberInBreakGlassGroupProblem(member, breakGlassGroup)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if problem.Code() != ProblemDeveloperGroupMemberInBreakGlassGroup {
-		t.Errorf("Code() = %q, want %q", problem.Code(), ProblemDeveloperGroupMemberInBreakGlassGroup)
-	}
-	if problem.Recommendation() != RecommendationRemoveDeveloperGroupMember {
-		t.Errorf("Recommendation() = %q, want %q", problem.Recommendation(), RecommendationRemoveDeveloperGroupMember)
-	}
-	wantDetails := json.RawMessage(`{"member":"alice@example.com","break_glass_group":"break-glass@example.com"}`)
-	if !reflect.DeepEqual(problem.DetailsJSON(), wantDetails) {
-		t.Errorf("DetailsJSON() = %s, want %s", problem.DetailsJSON(), wantDetails)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			member, err := domain.NewEmail("alice@example.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			breakGlassGroup, err := domain.NewEmail("break-glass@example.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			problem, err := tt.new(member, breakGlassGroup)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if problem.Code() != tt.wantCode {
+				t.Errorf("Code() = %q, want %q", problem.Code(), tt.wantCode)
+			}
+			if problem.Recommendation() != domain.RecommendationRemoveDeveloperGroupMember {
+				t.Errorf("Recommendation() = %q, want %q", problem.Recommendation(), domain.RecommendationRemoveDeveloperGroupMember)
+			}
+			wantDetails := json.RawMessage(`{"member":"alice@example.com","break_glass_group":"break-glass@example.com"}`)
+			if !reflect.DeepEqual(problem.DetailsJSON(), wantDetails) {
+				t.Errorf("DetailsJSON() = %s, want %s", problem.DetailsJSON(), wantDetails)
+			}
+		})
 	}
 }
