@@ -1,29 +1,50 @@
 // Package orchestrator coordinates Google Cloud project provisioning.
 package orchestrator
 
-import "github.com/yusni/google-cloud-auto-provision-2/domain"
+import (
+	"context"
+
+	"github.com/yusni/google-cloud-auto-provision-2/domain"
+)
 
 // InitiateProjectCreationRequest is the input for initiating target project
 // creation.
-type InitiateProjectCreationRequest struct{}
+type InitiateProjectCreationRequest struct {
+	// ID is issued by the caller and doubles as an idempotency key: retrying
+	// with the same ID never starts a second project creation.
+	ID domain.ProjectCreationID
+}
 
 // InitiateProjectCreationResponse is the result of initiating target project
 // creation.
-type InitiateProjectCreationResponse struct{}
+type InitiateProjectCreationResponse struct {
+	// ID identifies the accepted project creation. It is the ID of the request.
+	ID domain.ProjectCreationID
+}
 
-// InitiateProjectCreation starts the initial setup for a target project.
-func InitiateProjectCreation(request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
+// InitiateProjectCreation accepts a project creation request and returns once
+// it is recorded. The rest of the initial setup keeps running in the
+// background, and its progress is read with GetProjectCreationProgress. The
+// returned error means the request was not accepted.
+func InitiateProjectCreation(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
 	// step:
-	//   以下をBigQueryに記録した後で、引数からdomain.ProjectCreationRequestを構成し、バリデーション。
+	//   引数からdomain.ProjectCreationRequestを構成し、バリデーション。同期で実行。
 	//   構成に必要な情報はGoogle Cloudから取得。
+	//   問題があれば、BigQueryには記録せず、問題と推奨解決法とともにエラーを返却。
+	//   (ProjectCreationProgressはdomain.ProjectCreationRequestを必須で持つため、構成前には記録できない)
+
+	// step:
+	//   以下をBigQueryに記録。同期で実行。
 	//     - ProjectCreationProgress, State = "initiating_project_creation", status = "in_progress"
-	//   問題があれば以下をBigQueryに記録し、エラーを返却
-	//     - ProjectCreationProgress, State = "initiating_project_creation", status = "error"
-	//     - 問題と推奨解決法
-	//   注意:
-	//     ProjectCreationProgressはdomain.ProjectCreationRequestを必須で持つため、
-	//     requestの構成に失敗するとProjectCreationProgressを作成できない。
-	//     その場合のBigQueryへの記録方法は要検討。
+	//   request.IDが記録済みなら重複申請なので、記録も後続処理の起動もせず、記録済みのIDで成功を返却。
+	//   ただし記録済みのrequestと中身が違う場合はエラーを返却。
+	//   (バリデーションはこの記録より前に済んでいるため、この状態は一瞬しか続かない。残すかどうかは要検討)
+
+	// early return:
+	//   ここで、記録したIDを含むレスポンスを返却。以降はgoroutineでバックグラウンド実行。
+	//   ctxは呼び出し元のレスポンス返却時にキャンセルされるため、以降はcontext.WithoutCancelで切り離したctxを使う。
+	//   以降の問題は戻り値では返せないため、BigQueryに status = "error" として記録。
+	//   呼び出し元はGetProjectCreationProgressで確認し、RestartProjectCreationで再開できる。
 
 	// step:
 	//   以下をBigQueryに記録した後で、プロジェクト作成requestをGoogle Cloudに送信。
@@ -57,7 +78,7 @@ func InitiateProjectCreation(request InitiateProjectCreationRequest) (InitiatePr
 	//   以下をBigQueryに記録。
 	//     - ProjectCreationProgress, State = "initial_setup_done", status = "success"
 
-	return InitiateProjectCreationResponse{}, nil
+	return InitiateProjectCreationResponse{ID: request.ID}, nil
 }
 
 // GetProjectCreationProgressResponse is the result of looking up a project
