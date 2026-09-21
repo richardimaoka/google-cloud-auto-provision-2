@@ -47,7 +47,7 @@ const (
 )
 
 // SetupProgress is where the initial setup of a project is. It is immutable:
-// Advance and Fail return the next SetupProgress.
+// Advance, Fail and Retry return the next SetupProgress.
 //
 // The valid combinations of State and Status are:
 //   - StateInitialSetupDone with StatusSuccess
@@ -104,4 +104,13 @@ func (p SetupProgress) Fail() (SetupProgress, error) {
 		return SetupProgress{}, fmt.Errorf("cannot fail state %q with status %q: it is not in progress", p.state, p.status)
 	}
 	return SetupProgress{state: p.state, status: StatusError}, nil
+}
+
+// Retry returns the SetupProgress after the failed operation is tried again: the
+// same State with StatusInProgress. It returns an error unless p is StatusError.
+func (p SetupProgress) Retry() (SetupProgress, error) {
+	if p.status != StatusError {
+		return SetupProgress{}, fmt.Errorf("cannot retry state %q with status %q: it is not an error", p.state, p.status)
+	}
+	return SetupProgress{state: p.state, status: StatusInProgress}, nil
 }
