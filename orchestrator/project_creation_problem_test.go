@@ -18,11 +18,11 @@ func TestNewProjectCreationProblem(t *testing.T) {
 		details        json.RawMessage
 		wantErr        bool
 	}{
-		{name: "code、recommendation、JSONの詳細を保持する", code: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: details},
+		{name: "code、recommendation、JSONの詳細を保持する", code: domain.ProblemDeveloperInUltimateBreakGlass, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: details},
 		{name: "codeが空だとエラー", recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: details, wantErr: true},
-		{name: "recommendationが空だとエラー", code: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, details: details, wantErr: true},
-		{name: "不正なJSONだとエラー", code: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: json.RawMessage(`{`), wantErr: true},
-		{name: "JSONオブジェクト以外はエラー", code: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: json.RawMessage(`[]`), wantErr: true},
+		{name: "recommendationが空だとエラー", code: domain.ProblemDeveloperInUltimateBreakGlass, details: details, wantErr: true},
+		{name: "不正なJSONだとエラー", code: domain.ProblemDeveloperInUltimateBreakGlass, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: json.RawMessage(`{`), wantErr: true},
+		{name: "JSONオブジェクト以外はエラー", code: domain.ProblemDeveloperInUltimateBreakGlass, recommendation: domain.RecommendationRemoveDeveloperGroupMember, details: json.RawMessage(`[]`), wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -72,8 +72,8 @@ func TestNewDeveloperGroupMemberInBreakGlassGroupProblems(t *testing.T) {
 		new      func(member, breakGlassGroup domain.Email) (ProjectCreationProblem, error)
 		wantCode domain.ProjectCreationProblemCode
 	}{
-		{name: "ultimate", new: NewDeveloperGroupMemberInUltimateBreakGlassGroupProblem, wantCode: domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup},
-		{name: "emergency", new: NewDeveloperGroupMemberInEmergencyBreakGlassGroupProblem, wantCode: domain.ProblemDeveloperGroupMemberInEmergencyBreakGlassGroup},
+		{name: "ultimate", new: NewDeveloperGroupMemberInUltimateBreakGlassGroupProblem, wantCode: domain.ProblemDeveloperInUltimateBreakGlass},
+		{name: "emergency", new: NewDeveloperGroupMemberInEmergencyBreakGlassGroupProblem, wantCode: domain.ProblemDeveloperInEmergencyBreakGlass},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

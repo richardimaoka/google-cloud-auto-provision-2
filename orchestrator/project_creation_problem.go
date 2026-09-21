@@ -46,14 +46,14 @@ func NewProjectCreationProblem(code domain.ProjectCreationProblemCode, recommend
 // and the recommendation for a developer group member who also belongs to the
 // ultimate break-glass group.
 func NewDeveloperGroupMemberInUltimateBreakGlassGroupProblem(member, breakGlassGroup domain.Email) (ProjectCreationProblem, error) {
-	return newDeveloperGroupMemberInBreakGlassGroupProblem(domain.ProblemDeveloperGroupMemberInUltimateBreakGlassGroup, member, breakGlassGroup)
+	return newDeveloperGroupMemberInBreakGlassGroupProblem(domain.ProblemDeveloperInUltimateBreakGlass, member, breakGlassGroup)
 }
 
 // NewDeveloperGroupMemberInEmergencyBreakGlassGroupProblem returns the problem
 // and the recommendation for a developer group member who also belongs to the
 // emergency break-glass group.
 func NewDeveloperGroupMemberInEmergencyBreakGlassGroupProblem(member, breakGlassGroup domain.Email) (ProjectCreationProblem, error) {
-	return newDeveloperGroupMemberInBreakGlassGroupProblem(domain.ProblemDeveloperGroupMemberInEmergencyBreakGlassGroup, member, breakGlassGroup)
+	return newDeveloperGroupMemberInBreakGlassGroupProblem(domain.ProblemDeveloperInEmergencyBreakGlass, member, breakGlassGroup)
 }
 
 func newDeveloperGroupMemberInBreakGlassGroupProblem(code domain.ProjectCreationProblemCode, member, breakGlassGroup domain.Email) (ProjectCreationProblem, error) {

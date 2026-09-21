@@ -12,9 +12,8 @@ type ProjectCreationRequest struct {
 	DeveloperGroup GoogleGroup
 }
 
-// NewProjectCreationRequest returns a ProjectCreationRequest, or an error if
-// displayName does not meet Google Cloud's project display-name requirements,
-// requester is the zero Email, or developerGroup's Email is the zero Email.
+// NewProjectCreationRequest returns an error if displayName is invalid, or if
+// requester or developerGroup's email is the zero Email.
 func NewProjectCreationRequest(displayName string, requester Email, developerGroup GoogleGroup) (ProjectCreationRequest, error) {
 	if !validProjectDisplayName(displayName) {
 		return ProjectCreationRequest{}, fmt.Errorf("invalid project display name %q", displayName)
@@ -32,9 +31,8 @@ func NewProjectCreationRequest(displayName string, requester Email, developerGro
 	}, nil
 }
 
-// validProjectDisplayName reports whether name meets the Google Cloud project
-// display-name requirements. It is 4 to 30 ASCII characters, uses only the
-// permitted characters, and ends with a letter or digit.
+// validProjectDisplayName reports whether name is a valid Google Cloud project
+// display name: 4 to 30 permitted ASCII characters, ending in a letter or digit.
 func validProjectDisplayName(name string) bool {
 	if len(name) < 4 || len(name) > 30 {
 		return false
@@ -52,12 +50,9 @@ func validProjectDisplayName(name string) bool {
 // minDeveloperGroupMembers is the fewest members a developer group may have.
 const minDeveloperGroupMembers = 2
 
-// Validate returns an error if r does not fit org, or nil if it does. It reports
-// every problem found, not just the first. Domains are compared case-insensitively.
-//
-// The requester and the developer group must belong to org's domain, and so must
-// every member of the developer group. The developer group must have at least
-// minDeveloperGroupMembers members.
+// Validate reports every way r does not fit org. The requester, the developer
+// group and its members must be in org's domain (case-insensitive), and the
+// group must have at least minDeveloperGroupMembers members.
 func (r ProjectCreationRequest) Validate(org Organization) error {
 	var errs []error
 	if n := len(r.DeveloperGroup.members); n < minDeveloperGroupMembers {
@@ -77,27 +72,21 @@ func (r ProjectCreationRequest) Validate(org Organization) error {
 	return errors.Join(errs...)
 }
 
-// ProjectCreationProblemCode identifies a known problem that prevents project
-// creation from proceeding.
+// ProjectCreationProblemCode identifies a known problem that blocks project
+// creation.
 type ProjectCreationProblemCode string
 
 const (
-	// ProblemDeveloperGroupMemberInUltimateBreakGlassGroup reports that a
-	// developer group member is also a member of the ultimate break-glass group.
-	ProblemDeveloperGroupMemberInUltimateBreakGlassGroup ProjectCreationProblemCode = "developer_group_member_in_ultimate_break_glass_group"
-	// ProblemDeveloperGroupMemberInEmergencyBreakGlassGroup reports that a
-	// developer group member is also a member of the emergency break-glass
-	// group.
-	ProblemDeveloperGroupMemberInEmergencyBreakGlassGroup ProjectCreationProblemCode = "developer_group_member_in_emergency_break_glass_group"
+	// ProblemDeveloperInUltimateBreakGlass: a developer is in the ultimate break-glass group.
+	ProblemDeveloperInUltimateBreakGlass ProjectCreationProblemCode = "developer_group_member_in_ultimate_break_glass_group"
+	// ProblemDeveloperInEmergencyBreakGlass: a developer is in the emergency break-glass group.
+	ProblemDeveloperInEmergencyBreakGlass ProjectCreationProblemCode = "developer_group_member_in_emergency_break_glass_group"
 )
 
 // RecommendationCode identifies the recommended action for a known problem.
-// It is stored with the problem as the recommendation that was presented when
-// the problem occurred.
 type RecommendationCode string
 
 const (
-	// RecommendationRemoveDeveloperGroupMember advises removing the overlapping
-	// member from the developer group.
+	// RecommendationRemoveDeveloperGroupMember: remove the member from the group.
 	RecommendationRemoveDeveloperGroupMember RecommendationCode = "remove_developer_group_member"
 )
