@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	privilegedaccessmanager "cloud.google.com/go/privilegedaccessmanager/apiv1"
@@ -128,10 +129,62 @@ func (c *PAMClient) Close() error {
 	return c.client.Close()
 }
 
+func entitlementName(projectID, entitlementID string) string {
+	return fmt.Sprintf("projects/%s/locations/%s/entitlements/%s", projectID, pamLocation, entitlementID)
+}
+
+// principals joins the principals of the entries into one list.
+func principals(entries []*privilegedaccessmanagerpb.AccessControlEntry) []string {
+	var all []string
+	for _, e := range entries {
+		all = append(all, e.GetPrincipals()...)
+	}
+	return all
+}
+
+func entitlementFromAPI(e *privilegedaccessmanagerpb.Entitlement) *Entitlement {
+	ent := &Entitlement{
+		Name:                 e.GetName(),
+		EligibleUsers:        principals(e.GetEligibleUsers()),
+		MaxRequestDuration:   e.GetMaxRequestDuration().AsDuration(),
+		RequireJustification: e.GetRequesterJustificationConfig().GetUnstructured() != nil,
+		State:                e.GetState().String(),
+	}
+	if gcp := e.GetPrivilegedAccess().GetGcpIamAccess(); gcp != nil {
+		ent.Resource = gcp.GetResource()
+		ent.ResourceType = gcp.GetResourceType()
+		for _, rb := range gcp.GetRoleBindings() {
+			ent.Roles = append(ent.Roles, EntitlementRole{
+				Role:                rb.GetRole(),
+				ConditionExpression: rb.GetConditionExpression(),
+			})
+		}
+	}
+	if manual := e.GetApprovalWorkflow().GetManualApprovals(); manual != nil {
+		ent.RequireApproverJustification = manual.GetRequireApproverJustification()
+		for _, s := range manual.GetSteps() {
+			ent.ApprovalSteps = append(ent.ApprovalSteps, ApprovalStep{
+				Approvers:       principals(s.GetApprovers()),
+				ApprovalsNeeded: s.GetApprovalsNeeded(),
+			})
+		}
+	}
+	return ent
+}
+
 // GetEntitlement returns an entitlement of a project. It returns
 // ErrEntitlementNotFound if the project has none with that ID.
 func (c *PAMClient) GetEntitlement(ctx context.Context, projectID, entitlementID string) (*Entitlement, error) {
-	panic("not implemented")
+	e, err := c.client.GetEntitlement(ctx, &privilegedaccessmanagerpb.GetEntitlementRequest{
+		Name: entitlementName(projectID, entitlementID),
+	})
+	if err != nil {
+		if isHTTPStatus(err, http.StatusNotFound) {
+			return nil, fmt.Errorf("get entitlement: %w: %w", ErrEntitlementNotFound, err)
+		}
+		return nil, fmt.Errorf("get entitlement: %w", err)
+	}
+	return entitlementFromAPI(e), nil
 }
 
 // isHTTPStatus reports whether err is an API error with the HTTP status code. It
