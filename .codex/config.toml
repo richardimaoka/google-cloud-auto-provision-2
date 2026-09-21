@@ -1,0 +1,4 @@
+# Keep sandbox boundaries and route eligible approval requests to Codex's
+# auto-reviewer instead of interrupting the user.
+approval_policy = "on-request"
+approvals_reviewer = "auto_review"
