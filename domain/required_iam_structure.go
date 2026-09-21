@@ -1,5 +1,7 @@
 package domain
 
+import "fmt"
+
 // RequiredIAMStructure is the required IAM allow-policy structure for the
 // break-glass and developer Google Groups, and the target-project observer.
 //
@@ -17,7 +19,33 @@ type RequiredIAMStructure struct {
 // NewRequiredIAMStructure returns the IAM structure required for break-glass
 // groups and the developer group.
 //
-// TODO: Implement the required role mappings and their validation.
-func NewRequiredIAMStructure(breakGlass BreakGlass, developerGroupEmail Email, developerRole IAMRole, targetProjectObserverEmail Email) RequiredIAMStructure {
-	panic("NewRequiredIAMStructure is not implemented")
+// The target-project observer role mapping is populated without roles until
+// its required read permissions are defined.
+func NewRequiredIAMStructure(breakGlass BreakGlass, developerGroup GoogleGroup, developerRoles []IAMRole, targetProjectObserverEmail Email) RequiredIAMStructure {
+	return RequiredIAMStructure{
+		BreakGlassUltimateGroup: NewGroupRoleMapping(
+			breakGlass.UltimateGroup(),
+			[]IAMRole{requiredIAMRole("roles/owner")},
+			nil,
+		),
+		BreakGlassEmergencyGroup: NewGroupRoleMapping(
+			breakGlass.EmergencyGroup(),
+			[]IAMRole{requiredIAMRole("roles/resourcemanager.projectIamAdmin")},
+			nil,
+		),
+		DeveloperGroup: NewGroupRoleMapping(
+			developerGroup,
+			developerRoles,
+			nil,
+		),
+		TargetProjectObserver: NewServiceAccountRoleMapping(targetProjectObserverEmail, nil, nil),
+	}
+}
+
+func requiredIAMRole(name string) IAMRole {
+	role, err := NewIAMRole(name)
+	if err != nil {
+		panic(fmt.Sprintf("invalid required IAM role %q: %v", name, err))
+	}
+	return role
 }

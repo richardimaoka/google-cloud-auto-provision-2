@@ -24,7 +24,8 @@ func TestGroupRoleMapping(t *testing.T) {
 }
 
 func TestGroupRoleMapping_slicesAreCopied(t *testing.T) {
-	// コンストラクタに渡したスライスの変更がマッピングに影響しない。
+	// コンストラクタに渡した slice と accessor が返した slice のどちらを変更しても、
+	// GroupRoleMapping が保持するロールと binding は変わらない。
 	group := NewGoogleGroup(email(t, "developers@example.com"), nil)
 	editor := iamRole(t, "roles/editor")
 	viewer := iamRole(t, "roles/viewer")
@@ -41,6 +42,17 @@ func TestGroupRoleMapping_slicesAreCopied(t *testing.T) {
 	}
 	if got := mapping.ConditionalBindings()[0]; got != binding {
 		t.Errorf("ConditionalBindings()[0] = %v, want %v", got, binding)
+	}
+
+	returnedRoles := mapping.UnconditionalRoles()
+	returnedBindings := mapping.ConditionalBindings()
+	returnedRoles[0] = viewer
+	returnedBindings[0] = NewGroupRoleBinding(editor, iamCondition(t, "request.time < timestamp('2031-01-01T00:00:00Z')"))
+	if got := mapping.UnconditionalRoles()[0]; got != editor {
+		t.Errorf("UnconditionalRoles() followed a change to its returned slice: got %v, want %v", got, editor)
+	}
+	if got := mapping.ConditionalBindings()[0]; got != binding {
+		t.Errorf("ConditionalBindings() followed a change to its returned slice: got %v, want %v", got, binding)
 	}
 }
 
