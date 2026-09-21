@@ -111,6 +111,64 @@ func accessControlEntry(principals ...string) *privilegedaccessmanagerpb.AccessC
 	return &privilegedaccessmanagerpb.AccessControlEntry{Principals: principals}
 }
 
+// The helpers below build the parts of an Entitlement that the API wraps in a
+// oneof, so that a case shows the fields it is about and not the wrapper types.
+
+// manualApprovals is an approval workflow of manual approvals.
+func manualApprovals(requireApproverJustification bool, steps ...*privilegedaccessmanagerpb.ManualApprovals_Step) *privilegedaccessmanagerpb.ApprovalWorkflow {
+	return &privilegedaccessmanagerpb.ApprovalWorkflow{
+		ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow_ManualApprovals{
+			ManualApprovals: &privilegedaccessmanagerpb.ManualApprovals{
+				RequireApproverJustification: requireApproverJustification,
+				Steps:                        steps,
+			},
+		},
+	}
+}
+
+// approvalStep is a step of manual approvals: approvalsNeeded of the approvers must
+// approve.
+func approvalStep(approvalsNeeded int32, approvers ...*privilegedaccessmanagerpb.AccessControlEntry) *privilegedaccessmanagerpb.ManualApprovals_Step {
+	return &privilegedaccessmanagerpb.ManualApprovals_Step{Approvers: approvers, ApprovalsNeeded: approvalsNeeded}
+}
+
+// gcpIamAccess is a privileged access to grant roles on a resource.
+func gcpIamAccess(resourceType, resource string, roles ...*privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_RoleBinding) *privilegedaccessmanagerpb.PrivilegedAccess {
+	return &privilegedaccessmanagerpb.PrivilegedAccess{
+		AccessType: &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_{
+			GcpIamAccess: &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess{
+				ResourceType: resourceType,
+				Resource:     resource,
+				RoleBindings: roles,
+			},
+		},
+	}
+}
+
+// roleBinding is a role of gcpIamAccess. The condition expression is empty for a
+// role without a condition.
+func roleBinding(role, conditionExpression string) *privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_RoleBinding {
+	return &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_RoleBinding{Role: role, ConditionExpression: conditionExpression}
+}
+
+// requiredJustification is a config that makes a requester give a justification.
+func requiredJustification() *privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig {
+	return &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig{
+		JustificationType: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_Unstructured_{
+			Unstructured: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_Unstructured{},
+		},
+	}
+}
+
+// optionalJustification is a config that lets a requester give a justification or not.
+func optionalJustification() *privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig {
+	return &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig{
+		JustificationType: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_NotMandatory_{
+			NotMandatory: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_NotMandatory{},
+		},
+	}
+}
+
 // getFakeEntitlement returns what GetEntitlement returns when the API answers with
 // e. It sets the name of e, so a case has only the fields it is about.
 func getFakeEntitlement(t *testing.T, e *privilegedaccessmanagerpb.Entitlement) *Entitlement {
@@ -148,18 +206,12 @@ func TestPAMClient_GetEntitlement(t *testing.T) {
 
 	t.Run("リソースとリソースタイプと、条件式付きのロールを返す", func(t *testing.T) {
 		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
-			PrivilegedAccess: &privilegedaccessmanagerpb.PrivilegedAccess{
-				AccessType: &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_{
-					GcpIamAccess: &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess{
-						ResourceType: "cloudresourcemanager.googleapis.com/Project",
-						Resource:     "//cloudresourcemanager.googleapis.com/projects/my-project",
-						RoleBindings: []*privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_RoleBinding{
-							{Role: "roles/viewer"},
-							{Role: "roles/storage.admin", ConditionExpression: `resource.type == "storage.googleapis.com/Bucket"`},
-						},
-					},
-				},
-			},
+			PrivilegedAccess: gcpIamAccess(
+				"cloudresourcemanager.googleapis.com/Project",
+				"//cloudresourcemanager.googleapis.com/projects/my-project",
+				roleBinding("roles/viewer", ""),
+				roleBinding("roles/storage.admin", `resource.type == "storage.googleapis.com/Bucket"`),
+			),
 		})
 
 		if want := "//cloudresourcemanager.googleapis.com/projects/my-project"; got.Resource != want {
@@ -194,25 +246,10 @@ func TestPAMClient_GetEntitlement(t *testing.T) {
 
 	t.Run("複数の承認ステップを、承認される順に、承認者と必要な承認数と一緒に返す", func(t *testing.T) {
 		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
-			ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow{
-				ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow_ManualApprovals{
-					ManualApprovals: &privilegedaccessmanagerpb.ManualApprovals{
-						Steps: []*privilegedaccessmanagerpb.ManualApprovals_Step{
-							{
-								Approvers:       []*privilegedaccessmanagerpb.AccessControlEntry{accessControlEntry("user:carol@example.com")},
-								ApprovalsNeeded: 1,
-							},
-							{
-								Approvers: []*privilegedaccessmanagerpb.AccessControlEntry{
-									accessControlEntry("user:dave@example.com"),
-									accessControlEntry("group:group-2@example.com"),
-								},
-								ApprovalsNeeded: 2,
-							},
-						},
-					},
-				},
-			},
+			ApprovalWorkflow: manualApprovals(false,
+				approvalStep(1, accessControlEntry("user:carol@example.com")),
+				approvalStep(2, accessControlEntry("user:dave@example.com"), accessControlEntry("group:group-2@example.com")),
+			),
 		})
 
 		// The first step must be approved before the second one, so the order matters.
@@ -227,11 +264,7 @@ func TestPAMClient_GetEntitlement(t *testing.T) {
 
 	t.Run("承認者の理由の入力が必須ならRequireApproverJustificationはtrueになる", func(t *testing.T) {
 		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
-			ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow{
-				ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow_ManualApprovals{
-					ManualApprovals: &privilegedaccessmanagerpb.ManualApprovals{RequireApproverJustification: true},
-				},
-			},
+			ApprovalWorkflow: manualApprovals(true),
 		})
 
 		if !got.RequireApproverJustification {
@@ -252,11 +285,7 @@ func TestPAMClient_GetEntitlement(t *testing.T) {
 
 	t.Run("理由の入力が必須ならRequireJustificationはtrueになる", func(t *testing.T) {
 		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
-			RequesterJustificationConfig: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig{
-				JustificationType: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_Unstructured_{
-					Unstructured: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_Unstructured{},
-				},
-			},
+			RequesterJustificationConfig: requiredJustification(),
 		})
 
 		if !got.RequireJustification {
@@ -266,11 +295,7 @@ func TestPAMClient_GetEntitlement(t *testing.T) {
 
 	t.Run("理由の入力が任意ならRequireJustificationはfalseになる", func(t *testing.T) {
 		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
-			RequesterJustificationConfig: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig{
-				JustificationType: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_NotMandatory_{
-					NotMandatory: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_NotMandatory{},
-				},
-			},
+			RequesterJustificationConfig: optionalJustification(),
 		})
 
 		if got.RequireJustification {
