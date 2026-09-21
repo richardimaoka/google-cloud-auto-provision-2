@@ -4,38 +4,40 @@ import "testing"
 
 func TestNewSetupProgress(t *testing.T) {
 	tests := []struct {
-		name    string
-		id      ProjectCreationID
-		state   State
-		status  Status
-		wantErr bool
+		name     string
+		id       ProjectCreationID
+		revision int
+		state    State
+		status   Status
+		wantErr  bool
 	}{
-		{name: "-ingの状態はin_progressで作れる", id: "request-123", state: StateCreatingProject, status: StatusInProgress},
-		{name: "-ingの状態はerrorでも作れる", id: "request-123", state: StateAddingPAMEntitlements, status: StatusError},
-		{name: "initial_setup_doneはsuccessで作れる", id: "request-123", state: StateInitialSetupDone, status: StatusSuccess},
-		{name: "-ingの状態をsuccessにするとエラー", id: "request-123", state: StateCreatingProject, status: StatusSuccess, wantErr: true},
-		{name: "initial_setup_doneをin_progressにするとエラー", id: "request-123", state: StateInitialSetupDone, status: StatusInProgress, wantErr: true},
-		{name: "initial_setup_doneをerrorにするとエラー", id: "request-123", state: StateInitialSetupDone, status: StatusError, wantErr: true},
-		{name: "知らない状態だとエラー", id: "request-123", state: State("created_project"), status: StatusInProgress, wantErr: true},
-		{name: "知らないステータスだとエラー", id: "request-123", state: StateCreatingProject, status: Status("failed"), wantErr: true},
-		{name: "状態が空だとエラー", id: "request-123", state: "", status: StatusInProgress, wantErr: true},
-		{name: "IDが空だとエラー", state: StateInitiatingProjectCreation, status: StatusInProgress, wantErr: true},
+		{name: "-ingの状態はin_progressで作れる", id: "request-123", revision: 1, state: StateCreatingProject, status: StatusInProgress},
+		{name: "-ingの状態はerrorでも作れる", id: "request-123", revision: 1, state: StateAddingPAMEntitlements, status: StatusError},
+		{name: "initial_setup_doneはsuccessで作れる", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusSuccess},
+		{name: "-ingの状態をsuccessにするとエラー", id: "request-123", revision: 1, state: StateCreatingProject, status: StatusSuccess, wantErr: true},
+		{name: "initial_setup_doneをin_progressにするとエラー", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusInProgress, wantErr: true},
+		{name: "initial_setup_doneをerrorにするとエラー", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusError, wantErr: true},
+		{name: "知らない状態だとエラー", id: "request-123", revision: 1, state: State("created_project"), status: StatusInProgress, wantErr: true},
+		{name: "知らないステータスだとエラー", id: "request-123", revision: 1, state: StateCreatingProject, status: Status("failed"), wantErr: true},
+		{name: "状態が空だとエラー", id: "request-123", revision: 1, state: "", status: StatusInProgress, wantErr: true},
+		{name: "IDが空だとエラー", revision: 1, state: StateInitiatingProjectCreation, status: StatusInProgress, wantErr: true},
+		{name: "revisionが0だとエラー", id: "request-123", state: StateInitiatingProjectCreation, status: StatusInProgress, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := NewSetupProgress(tt.id, projectCreationRequest(t), tt.state, tt.status)
+			p, err := NewSetupProgress(tt.id, tt.revision, projectCreationRequest(t), tt.state, tt.status)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("NewSetupProgress(%q, %q, %q) = nil error, want an error", tt.id, tt.state, tt.status)
+					t.Fatalf("NewSetupProgress(%q, %d, %q, %q) = nil error, want an error", tt.id, tt.revision, tt.state, tt.status)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("NewSetupProgress(%q, %q, %q): %v", tt.id, tt.state, tt.status, err)
+				t.Fatalf("NewSetupProgress(%q, %d, %q, %q): %v", tt.id, tt.revision, tt.state, tt.status, err)
 			}
-			if p.ID() != tt.id || p.State() != tt.state || p.Status() != tt.status {
-				t.Errorf("got %q/%q/%q, want %q/%q/%q", p.ID(), p.State(), p.Status(), tt.id, tt.state, tt.status)
+			if p.ID() != tt.id || p.Revision() != tt.revision || p.State() != tt.state || p.Status() != tt.status {
+				t.Errorf("got %q/%d/%q/%q, want %q/%d/%q/%q", p.ID(), p.Revision(), p.State(), p.Status(), tt.id, tt.revision, tt.state, tt.status)
 			}
 		})
 	}
@@ -57,7 +59,7 @@ func projectCreationRequest(t *testing.T) ProjectCreationRequest {
 // progress returns a SetupProgress, failing the test if it is not valid.
 func progress(t *testing.T, state State, status Status) SetupProgress {
 	t.Helper()
-	p, err := NewSetupProgress("request-123", projectCreationRequest(t), state, status)
+	p, err := NewSetupProgress("request-123", 1, projectCreationRequest(t), state, status)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,6 +91,9 @@ func TestSetupProgress_Advance(t *testing.T) {
 		}
 		if next.ID() != p.ID() {
 			t.Fatalf("step %d: ID = %q, want %q", i+1, next.ID(), p.ID())
+		}
+		if next.Revision() != p.Revision() {
+			t.Fatalf("step %d: Revision = %d, want %d", i+1, next.Revision(), p.Revision())
 		}
 		if next.Request().DisplayName != p.Request().DisplayName {
 			t.Fatalf("step %d: DisplayName = %q, want %q", i+1, next.Request().DisplayName, p.Request().DisplayName)

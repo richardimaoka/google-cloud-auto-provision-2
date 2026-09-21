@@ -59,18 +59,22 @@ type ProjectCreationID string
 //   - StateInitialSetupDone with StatusSuccess
 //   - any other State with StatusInProgress or StatusError
 type SetupProgress struct {
-	id      ProjectCreationID
-	request ProjectCreationRequest
-	state   State
-	status  Status
+	revision int
+	id       ProjectCreationID
+	request  ProjectCreationRequest
+	state    State
+	status   Status
 }
 
 // NewSetupProgress returns a SetupProgress, or an error if state is unknown or
-// status is not valid for state, or id is empty. Use it to restore a
+// status is not valid for state, id is empty, or revision is less than one. Use it to restore a
 // SetupProgress that was stored.
-func NewSetupProgress(id ProjectCreationID, request ProjectCreationRequest, state State, status Status) (SetupProgress, error) {
+func NewSetupProgress(id ProjectCreationID, revision int, request ProjectCreationRequest, state State, status Status) (SetupProgress, error) {
 	if id == "" {
 		return SetupProgress{}, errors.New("project creation ID is empty")
+	}
+	if revision < 1 {
+		return SetupProgress{}, fmt.Errorf("project creation revision is %d, want at least 1", revision)
 	}
 	if !slices.Contains(states, state) {
 		return SetupProgress{}, fmt.Errorf("unknown state %q", state)
@@ -82,11 +86,14 @@ func NewSetupProgress(id ProjectCreationID, request ProjectCreationRequest, stat
 	} else if status != StatusInProgress && status != StatusError {
 		return SetupProgress{}, fmt.Errorf("invalid status %q for state %q: must be %q or %q", status, state, StatusInProgress, StatusError)
 	}
-	return SetupProgress{id: id, request: cloneProjectCreationRequest(request), state: state, status: status}, nil
+	return SetupProgress{revision: revision, id: id, request: cloneProjectCreationRequest(request), state: state, status: status}, nil
 }
 
 // ID returns the identifier of the project creation request.
 func (p SetupProgress) ID() ProjectCreationID { return p.id }
+
+// Revision returns the one-based revision of the project creation request.
+func (p SetupProgress) Revision() int { return p.revision }
 
 // Request returns a copy of the project creation request being processed.
 func (p SetupProgress) Request() ProjectCreationRequest {
@@ -111,9 +118,9 @@ func (p SetupProgress) Advance() (SetupProgress, error) {
 	// so there is always a next one.
 	next := states[slices.Index(states, p.state)+1]
 	if next == StateInitialSetupDone {
-		return SetupProgress{id: p.id, request: p.request, state: next, status: StatusSuccess}, nil
+		return SetupProgress{revision: p.revision, id: p.id, request: p.request, state: next, status: StatusSuccess}, nil
 	}
-	return SetupProgress{id: p.id, request: p.request, state: next, status: StatusInProgress}, nil
+	return SetupProgress{revision: p.revision, id: p.id, request: p.request, state: next, status: StatusInProgress}, nil
 }
 
 // Fail returns the SetupProgress after the current operation failed: the same
@@ -122,7 +129,7 @@ func (p SetupProgress) Fail() (SetupProgress, error) {
 	if p.status != StatusInProgress {
 		return SetupProgress{}, fmt.Errorf("cannot fail state %q with status %q: it is not in progress", p.state, p.status)
 	}
-	return SetupProgress{id: p.id, request: p.request, state: p.state, status: StatusError}, nil
+	return SetupProgress{revision: p.revision, id: p.id, request: p.request, state: p.state, status: StatusError}, nil
 }
 
 // Retry returns the SetupProgress after the failed operation is tried again: the
@@ -131,7 +138,7 @@ func (p SetupProgress) Retry() (SetupProgress, error) {
 	if p.status != StatusError {
 		return SetupProgress{}, fmt.Errorf("cannot retry state %q with status %q: it is not an error", p.state, p.status)
 	}
-	return SetupProgress{id: p.id, request: p.request, state: p.state, status: StatusInProgress}, nil
+	return SetupProgress{revision: p.revision, id: p.id, request: p.request, state: p.state, status: StatusInProgress}, nil
 }
 
 func cloneProjectCreationRequest(request ProjectCreationRequest) ProjectCreationRequest {
