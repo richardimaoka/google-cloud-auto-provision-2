@@ -103,11 +103,43 @@ func newTestPAMClient(t *testing.T, endpoint string) *PAMClient {
 }
 
 func TestPAMClient_GetEntitlement(t *testing.T) {
-	t.Run("エンタイトルメントの全項目を変換する", func(t *testing.T) {
+	t.Run("globalリージョンのエンタイトルメントを1回のGETで取得する", func(t *testing.T) {
 		t.Skip("not written yet")
 	})
 
-	t.Run("承認と理由が不要なエンタイトルメントは空の値になる", func(t *testing.T) {
+	t.Run("リソースとリソースタイプと、条件式付きのロールを返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("対象ユーザーは複数のエントリをまたいで1つのリストにまとめる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("複数の承認ステップを、承認される順に、承認者と必要な承認数と一緒に返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("承認者の理由の入力が必須ならRequireApproverJustificationはtrueになる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("承認が設定されていなければ承認ステップは空になる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("理由の入力が必須ならRequireJustificationはtrueになる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("理由の入力が任意ならRequireJustificationはfalseになる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("最大リクエスト時間を返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("状態を名前の文字列で返す", func(t *testing.T) {
 		t.Skip("not written yet")
 	})
 
