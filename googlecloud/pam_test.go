@@ -356,6 +356,106 @@ func TestPAMClient_GetEntitlement(t *testing.T) {
 	})
 }
 
+func TestPAMClient_CreateEntitlement(t *testing.T) {
+	t.Run("globalリージョンにエンタイトルメントIDを指定してPOSTする", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("リソースとリソースタイプと、条件式付きのロールをリクエストに載せる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("対象ユーザーを1つのエントリにまとめてリクエストに載せる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("複数の承認ステップを、承認される順に、承認者と必要な承認数と一緒にリクエストに載せる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("承認者の理由の入力が必須ならリクエストにそう載せる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("承認ステップがなければ承認の設定を載せない", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("理由の入力が必須ならリクエストにそう載せる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("理由の入力が任意ならリクエストにそう載せる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("最大リクエスト時間をリクエストに載せる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("オペレーションが最初のレスポンスで完了している", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("オペレーションが数回のポーリング後に完了する", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("完了したオペレーションのレスポンスがEntitlementに変換される", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("同じIDのエンタイトルメントが既にあればErrEntitlementAlreadyExistsを返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("作成リクエストが409以外で拒否されてもErrEntitlementAlreadyExistsにしない", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("オペレーションがエラーで完了する", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("ポーリング中に500", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+}
+
+func TestPAMClient_ListEntitlements(t *testing.T) {
+	t.Run("globalリージョンのエンタイトルメントを1回のGETで一覧する", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("各エンタイトルメントをGetEntitlementと同じ形に変換する", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("エンタイトルメントが1件もなければ空のリストを返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("エンタイトルメントが複数ページにまたがる", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("並びはAPIの並びのまま、ページをまたいでも保つ", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("エンタイトルメントの一覧の取得が1ページ目で失敗する", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("エンタイトルメントの一覧の取得が2ページ目で失敗する", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+
+	t.Run("エラーはそのまま返す", func(t *testing.T) {
+		t.Skip("not written yet")
+	})
+}
+
 func TestPAMClient_CheckOnboarding(t *testing.T) {
 	const serviceAccount = "service-123@gcp-sa-pam.iam.gserviceaccount.com"
 
