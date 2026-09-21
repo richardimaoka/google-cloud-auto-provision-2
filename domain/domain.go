@@ -51,11 +51,8 @@ func (r ProjectCreationRequest) Validate(org Organization) error {
 	if !strings.EqualFold(r.DeveloperGroup.Email.Domain(), org.Domain) {
 		errs = append(errs, fmt.Errorf("developer group %q is not in the organization domain %q", r.DeveloperGroup.Email, org.Domain))
 	}
-	if !strings.EqualFold(r.DeveloperGroup.Domain, org.Domain) {
-		errs = append(errs, fmt.Errorf("developer group domain %q is not the organization domain %q", r.DeveloperGroup.Domain, org.Domain))
-	}
 	for _, m := range r.DeveloperGroup.Members {
-		if !strings.EqualFold(m.Domain, org.Domain) {
+		if !strings.EqualFold(m.Email.Domain(), org.Domain) {
 			errs = append(errs, fmt.Errorf("developer group member %q is not in the organization domain %q", m.Email, org.Domain))
 		}
 	}
@@ -104,23 +101,21 @@ type Organization struct {
 // GoogleGroup represents a Google Group.
 type GoogleGroup struct {
 	Email   Email
-	Domain  string
 	Members []GoogleGroupMember
 }
 
 // GoogleGroupMember represents a Google Group member. Role is the strongest of
 // the roles the member holds.
 type GoogleGroupMember struct {
-	Email  Email
-	Role   string
-	Domain string
+	Email Email
+	Role  string
 }
 
-// SameDomain reports whether all of g's members have g's Domain. Domains are
-// compared case-insensitively.
+// SameDomain reports whether the Email of all of g's members has the same domain
+// as g's Email. Domains are compared case-insensitively.
 func (g *GoogleGroup) SameDomain() bool {
 	for _, m := range g.Members {
-		if !strings.EqualFold(m.Domain, g.Domain) {
+		if !strings.EqualFold(m.Email.Domain(), g.Email.Domain()) {
 			return false
 		}
 	}

@@ -18,116 +18,80 @@ func email(t *testing.T, s string) Email {
 func TestProjectCreationRequest_Validate(t *testing.T) {
 	org := Organization{ID: "123456789012", Domain: "example.com"}
 
-	type member struct {
-		email  string
-		domain string
-	}
-
 	// Two members in the organization, the fewest a valid group may have.
-	twoMembers := []member{
-		{"member-1@example.com", "example.com"},
-		{"member-2@example.com", "example.com"},
-	}
+	twoMembers := []string{"member-1@example.com", "member-2@example.com"}
 
 	tests := []struct {
 		name string
 		// The request, written as plain strings. An empty email is the zero Email.
-		requester   string
-		groupEmail  string
-		groupDomain string
-		members     []member
+		requester  string
+		groupEmail string
+		members    []string
 		// The number of problems Validate should report.
 		wantErrs int
 	}{
 		{
-			name:        "組織のドメインで揃っていて、メンバーが2人いれば有効",
-			requester:   "requester@example.com",
-			groupEmail:  "developer-group@example.com",
-			groupDomain: "example.com",
-			members:     twoMembers,
-			wantErrs:    0,
+			name:       "組織のドメインで揃っていて、メンバーが2人いれば有効",
+			requester:  "requester@example.com",
+			groupEmail: "developer-group@example.com",
+			members:    twoMembers,
+			wantErrs:   0,
 		},
 		{
-			name:        "開発者グループのメンバーが0人だとエラー1件",
-			requester:   "requester@example.com",
-			groupEmail:  "developer-group@example.com",
-			groupDomain: "example.com",
-			wantErrs:    1,
+			name:       "開発者グループのメンバーが0人だとエラー1件",
+			requester:  "requester@example.com",
+			groupEmail: "developer-group@example.com",
+			wantErrs:   1,
 		},
 		{
-			name:        "開発者グループのメンバーが1人だけ（2人未満）だとエラー1件",
-			requester:   "requester@example.com",
-			groupEmail:  "developer-group@example.com",
-			groupDomain: "example.com",
-			members:     []member{{"member-1@example.com", "example.com"}},
-			wantErrs:    1,
+			name:       "開発者グループのメンバーが1人だけ（2人未満）だとエラー1件",
+			requester:  "requester@example.com",
+			groupEmail: "developer-group@example.com",
+			members:    []string{"member-1@example.com"},
+			wantErrs:   1,
 		},
 		{
-			name:        "ドメインの大文字小文字が違っても同じドメインとして扱い、有効",
-			requester:   "requester@EXAMPLE.com",
-			groupEmail:  "developer-group@Example.com",
-			groupDomain: "Example.COM",
-			members: []member{
-				{"member-1@example.com", "EXAMPLE.COM"},
-				{"member-2@example.com", "Example.com"},
-			},
-			wantErrs: 0,
+			name:       "ドメインの大文字小文字が違っても同じドメインとして扱い、有効",
+			requester:  "requester@EXAMPLE.com",
+			groupEmail: "developer-group@Example.com",
+			members:    []string{"member-1@EXAMPLE.COM", "member-2@Example.com"},
+			wantErrs:   0,
 		},
 		{
-			name:        "requesterのドメインが組織と違うとエラー1件",
-			requester:   "requester@other.com",
-			groupEmail:  "developer-group@example.com",
-			groupDomain: "example.com",
-			members:     twoMembers,
-			wantErrs:    1,
+			name:       "requesterのドメインが組織と違うとエラー1件",
+			requester:  "requester@other.com",
+			groupEmail: "developer-group@example.com",
+			members:    twoMembers,
+			wantErrs:   1,
 		},
 		{
-			name:        "requesterが未設定（ゼロ値のEmail）だとエラー1件",
-			requester:   "",
-			groupEmail:  "developer-group@example.com",
-			groupDomain: "example.com",
-			members:     twoMembers,
-			wantErrs:    1,
+			name:       "requesterが未設定（ゼロ値のEmail）だとエラー1件",
+			requester:  "",
+			groupEmail: "developer-group@example.com",
+			members:    twoMembers,
+			wantErrs:   1,
 		},
 		{
-			name:        "開発者グループのメールアドレスのドメインが組織と違うとエラー1件",
-			requester:   "requester@example.com",
-			groupEmail:  "developer-group@other.com",
-			groupDomain: "example.com",
-			members:     twoMembers,
-			wantErrs:    1,
+			name:       "開発者グループのメールアドレスのドメインが組織と違うとエラー1件",
+			requester:  "requester@example.com",
+			groupEmail: "developer-group@other.com",
+			members:    twoMembers,
+			wantErrs:   1,
 		},
 		{
-			name:        "開発者グループのDomainフィールドが組織と違うとエラー1件",
-			requester:   "requester@example.com",
-			groupEmail:  "developer-group@example.com",
-			groupDomain: "other.com",
-			members:     twoMembers,
-			wantErrs:    1,
+			name:       "メンバー2人のうち1人のドメインが組織と違うとエラー1件",
+			requester:  "requester@example.com",
+			groupEmail: "developer-group@example.com",
+			members:    []string{"member-1@example.com", "outside-member@other.com"},
+			wantErrs:   1,
 		},
 		{
-			name:        "メンバー2人のうち1人のドメインが組織と違うとエラー1件",
-			requester:   "requester@example.com",
-			groupEmail:  "developer-group@example.com",
-			groupDomain: "example.com",
-			members: []member{
-				{"member-1@example.com", "example.com"},
-				{"outside-member@other.com", "other.com"},
-			},
-			wantErrs: 1,
-		},
-		{
-			name:        "違反が重なったときは1件で止めず、すべて報告する（5件）",
-			requester:   "requester@other.com",
-			groupEmail:  "developer-group@other.com",
-			groupDomain: "other.com",
-			members: []member{
-				{"outside-member-1@other.com", "other.com"},
-				{"inside-member@example.com", "example.com"},
-				{"outside-member-2@other.com", "other.com"},
-			},
-			// requester, group email, group domain, and two members
-			wantErrs: 5,
+			name:       "違反が重なったときは1件で止めず、すべて報告する（4件）",
+			requester:  "requester@other.com",
+			groupEmail: "developer-group@other.com",
+			members:    []string{"outside-member-1@other.com", "inside-member@example.com", "outside-member-2@other.com"},
+			// requester, group email, and two members
+			wantErrs: 4,
 		},
 	}
 
@@ -135,13 +99,12 @@ func TestProjectCreationRequest_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var members []GoogleGroupMember
 			for _, m := range tt.members {
-				members = append(members, GoogleGroupMember{Email: email(t, m.email), Domain: m.domain})
+				members = append(members, GoogleGroupMember{Email: email(t, m)})
 			}
 			r := ProjectCreationRequest{
 				Requester: email(t, tt.requester),
 				DeveloperGroup: GoogleGroup{
 					Email:   email(t, tt.groupEmail),
-					Domain:  tt.groupDomain,
 					Members: members,
 				},
 			}
