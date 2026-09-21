@@ -20,10 +20,7 @@ const pamLocation = "global"
 // ErrEntitlementNotFound is returned when the entitlement does not exist.
 var ErrEntitlementNotFound = errors.New("entitlement not found")
 
-// Entitlement represents a PAM entitlement: a grant of roles on a resource that
-// its eligible users can request for a limited time. Its fields are named after
-// the ones of the Entitlement of the privilegedaccessmanager API, and the ones
-// that a project does not use are left out.
+// Entitlement is an Entitlement of the PAM API, without the fields a project does not use.
 //
 // SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb#Entitlement
 // REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/projects.locations.entitlements#Entitlement
@@ -172,8 +169,11 @@ func entitlementFromAPI(e *privilegedaccessmanagerpb.Entitlement) *Entitlement {
 	return ent
 }
 
-// GetEntitlement returns an entitlement of a project. It returns
-// ErrEntitlementNotFound if the project has none with that ID.
+// GetEntitlement calls GetEntitlement on an entitlement of a project in the global location.
+// It returns ErrEntitlementNotFound if there is none.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1#Client.GetEntitlement
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/projects.locations.entitlements/get
 func (c *PAMClient) GetEntitlement(ctx context.Context, projectID, entitlementID string) (*Entitlement, error) {
 	e, err := c.client.GetEntitlement(ctx, &privilegedaccessmanagerpb.GetEntitlementRequest{
 		Name: entitlementName(projectID, entitlementID),
