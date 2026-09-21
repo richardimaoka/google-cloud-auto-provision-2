@@ -9,6 +9,7 @@ import "fmt"
 //	DeveloperGroupTooFewMembers         -> AddDeveloperGroupMembers
 //	DeveloperGroupDomainMismatch        -> UseDeveloperGroupInOrganizationDomain
 //	DeveloperGroupMemberDomainMismatch  -> RemoveDeveloperGroupMember
+//	RequesterDomainMismatch             -> UseRequesterInOrganizationDomain
 
 // ProjectCreationProblemCode identifies a known problem that blocks project
 // creation.
@@ -25,6 +26,8 @@ const (
 	ProblemDeveloperGroupDomainMismatch ProjectCreationProblemCode = "developer_group_domain_mismatch"
 	// ProblemDeveloperGroupMemberDomainMismatch: a developer group member is not in the organization domain.
 	ProblemDeveloperGroupMemberDomainMismatch ProjectCreationProblemCode = "developer_group_member_domain_mismatch"
+	// ProblemRequesterDomainMismatch: the requester is not in the organization domain.
+	ProblemRequesterDomainMismatch ProjectCreationProblemCode = "requester_domain_mismatch"
 )
 
 // RecommendationCode identifies the recommended action for a known problem.
@@ -37,6 +40,8 @@ const (
 	RecommendationAddDeveloperGroupMembers RecommendationCode = "add_developer_group_members"
 	// RecommendationUseDeveloperGroupInOrganizationDomain: use a group in the organization domain.
 	RecommendationUseDeveloperGroupInOrganizationDomain RecommendationCode = "use_developer_group_in_organization_domain"
+	// RecommendationUseRequesterInOrganizationDomain: request as an account in the organization domain.
+	RecommendationUseRequesterInOrganizationDomain RecommendationCode = "use_requester_in_organization_domain"
 )
 
 // ProjectCreationProblem is a known problem that blocks project creation. Each
@@ -208,6 +213,31 @@ func (p DeveloperGroupMemberDomainMismatch) Recommendation() RemoveDeveloperGrou
 	return NewRemoveDeveloperGroupMember(p.member, p.developerGroup)
 }
 
+// RequesterDomainMismatch is a requester outside the organization domain.
+type RequesterDomainMismatch struct {
+	requester          Email
+	organizationDomain string
+}
+
+// NewRequesterDomainMismatch returns the problem for requester, who is not in
+// organizationDomain.
+func NewRequesterDomainMismatch(requester Email, organizationDomain string) RequesterDomainMismatch {
+	return RequesterDomainMismatch{requester: requester, organizationDomain: organizationDomain}
+}
+
+func (RequesterDomainMismatch) Code() ProjectCreationProblemCode {
+	return ProblemRequesterDomainMismatch
+}
+
+func (p RequesterDomainMismatch) Description() string {
+	return fmt.Sprintf("requester %s is not in the organization domain %s", p.requester, p.organizationDomain)
+}
+
+// Recommendation returns the action that resolves the problem.
+func (p RequesterDomainMismatch) Recommendation() UseRequesterInOrganizationDomain {
+	return NewUseRequesterInOrganizationDomain(p.organizationDomain)
+}
+
 // AddDeveloperGroupMembers recommends adding members to developerGroup.
 type AddDeveloperGroupMembers struct {
 	developerGroup Email
@@ -245,4 +275,24 @@ func (UseDeveloperGroupInOrganizationDomain) Code() RecommendationCode {
 
 func (r UseDeveloperGroupInOrganizationDomain) Description() string {
 	return fmt.Sprintf("use a developer group in the organization domain %s", r.organizationDomain)
+}
+
+// UseRequesterInOrganizationDomain recommends requesting as an account in
+// organizationDomain.
+type UseRequesterInOrganizationDomain struct {
+	organizationDomain string
+}
+
+// NewUseRequesterInOrganizationDomain returns the recommendation to request as
+// an account in organizationDomain.
+func NewUseRequesterInOrganizationDomain(organizationDomain string) UseRequesterInOrganizationDomain {
+	return UseRequesterInOrganizationDomain{organizationDomain: organizationDomain}
+}
+
+func (UseRequesterInOrganizationDomain) Code() RecommendationCode {
+	return RecommendationUseRequesterInOrganizationDomain
+}
+
+func (r UseRequesterInOrganizationDomain) Description() string {
+	return fmt.Sprintf("request as an account in the organization domain %s", r.organizationDomain)
 }
