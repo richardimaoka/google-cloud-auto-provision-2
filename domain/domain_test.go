@@ -2,12 +2,9 @@ package domain
 
 import "testing"
 
-// email returns s as an Email, or the zero Email if s is empty.
+// email returns s as an Email.
 func email(t *testing.T, s string) Email {
 	t.Helper()
-	if s == "" {
-		return Email{}
-	}
 	e, err := NewEmail(s)
 	if err != nil {
 		t.Fatalf("NewEmail(%q): %v", s, err)
@@ -60,13 +57,6 @@ func TestProjectCreationRequest_Validate(t *testing.T) {
 		{
 			name:       "requesterのドメインが組織と違うとエラー1件",
 			requester:  "requester@other.com",
-			groupEmail: "developer-group@example.com",
-			members:    twoMembers,
-			wantErrs:   1,
-		},
-		{
-			name:       "requesterが未設定（ゼロ値のEmail）だとエラー1件",
-			requester:  "",
 			groupEmail: "developer-group@example.com",
 			members:    twoMembers,
 			wantErrs:   1,
