@@ -1,0 +1,172 @@
+package domain
+
+import "testing"
+
+func TestNewSetupProgress(t *testing.T) {
+	tests := []struct {
+		name    string
+		state   State
+		status  Status
+		wantErr bool
+	}{
+		{name: "-ingの状態はin_progressで作れる", state: StateCreatingProject, status: StatusInProgress},
+		{name: "-ingの状態はerrorでも作れる", state: StateAddingPAMEntitlements, status: StatusError},
+		{name: "initial_setup_doneはsuccessで作れる", state: StateInitialSetupDone, status: StatusSuccess},
+		{name: "-ingの状態をsuccessにするとエラー", state: StateCreatingProject, status: StatusSuccess, wantErr: true},
+		{name: "initial_setup_doneをin_progressにするとエラー", state: StateInitialSetupDone, status: StatusInProgress, wantErr: true},
+		{name: "initial_setup_doneをerrorにするとエラー", state: StateInitialSetupDone, status: StatusError, wantErr: true},
+		{name: "知らない状態だとエラー", state: State("created_project"), status: StatusInProgress, wantErr: true},
+		{name: "知らないステータスだとエラー", state: StateCreatingProject, status: Status("failed"), wantErr: true},
+		{name: "状態が空だとエラー", state: "", status: StatusInProgress, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := NewSetupProgress(tt.state, tt.status)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("NewSetupProgress(%q, %q) = nil error, want an error", tt.state, tt.status)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewSetupProgress(%q, %q): %v", tt.state, tt.status, err)
+			}
+			if p.State() != tt.state || p.Status() != tt.status {
+				t.Errorf("got %q/%q, want %q/%q", p.State(), p.Status(), tt.state, tt.status)
+			}
+		})
+	}
+}
+
+// progress returns a SetupProgress, failing the test if it is not valid.
+func progress(t *testing.T, state State, status Status) SetupProgress {
+	t.Helper()
+	p, err := NewSetupProgress(state, status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestSetupProgress_Advance(t *testing.T) {
+	// 正常系では、最初の状態から最後まで順番に進む。
+	want := []struct {
+		state  State
+		status Status
+	}{
+		{StateCreatingProject, StatusInProgress},
+		{StateAddingBreakGlassGroups, StatusInProgress},
+		{StateAddingServiceAccountPermissions, StatusInProgress},
+		{StateAddingPAMEntitlements, StatusInProgress},
+		{StateInitialSetupDone, StatusSuccess},
+	}
+
+	p := progress(t, want[0].state, want[0].status)
+	for i, w := range want[1:] {
+		next, err := p.Advance()
+		if err != nil {
+			t.Fatalf("Advance() from %q/%q: %v", p.State(), p.Status(), err)
+		}
+		if next.State() != w.state || next.Status() != w.status {
+			t.Fatalf("step %d: got %q/%q, want %q/%q", i+1, next.State(), next.Status(), w.state, w.status)
+		}
+		p = next
+	}
+	if !p.IsDone() {
+		t.Errorf("IsDone() = false at the end, want true")
+	}
+
+	t.Run("進んでも元のSetupProgressは変わらない", func(t *testing.T) {
+		before := progress(t, StateCreatingProject, StatusInProgress)
+		if _, err := before.Advance(); err != nil {
+			t.Fatal(err)
+		}
+		if before.State() != StateCreatingProject || before.Status() != StatusInProgress {
+			t.Errorf("Advance changed the receiver to %q/%q", before.State(), before.Status())
+		}
+	})
+
+	t.Run("errorからは進めない", func(t *testing.T) {
+		if _, err := progress(t, StateAddingBreakGlassGroups, StatusError).Advance(); err == nil {
+			t.Error("Advance() from an error = nil error, want an error")
+		}
+	})
+
+	t.Run("initial_setup_doneからは進めない", func(t *testing.T) {
+		if _, err := progress(t, StateInitialSetupDone, StatusSuccess).Advance(); err == nil {
+			t.Error("Advance() from the done state = nil error, want an error")
+		}
+	})
+}
+
+func TestSetupProgress_Fail(t *testing.T) {
+	t.Run("in_progressの状態は同じ状態のままerrorになる", func(t *testing.T) {
+		for _, state := range states[:len(states)-1] {
+			p, err := progress(t, state, StatusInProgress).Fail()
+			if err != nil {
+				t.Fatalf("Fail() from %q: %v", state, err)
+			}
+			if p.State() != state || p.Status() != StatusError {
+				t.Errorf("Fail() from %q gave %q/%q, want %q/%q", state, p.State(), p.Status(), state, StatusError)
+			}
+		}
+	})
+
+	t.Run("すでにerrorだと失敗にできない", func(t *testing.T) {
+		if _, err := progress(t, StateCreatingProject, StatusError).Fail(); err == nil {
+			t.Error("Fail() from an error = nil error, want an error")
+		}
+	})
+
+	t.Run("initial_setup_doneは失敗にできない", func(t *testing.T) {
+		if _, err := progress(t, StateInitialSetupDone, StatusSuccess).Fail(); err == nil {
+			t.Error("Fail() from the done state = nil error, want an error")
+		}
+	})
+}
+
+func TestSetupProgress_Retry(t *testing.T) {
+	t.Run("errorの状態は同じ状態のままin_progressに戻る", func(t *testing.T) {
+		for _, state := range states[:len(states)-1] {
+			p, err := progress(t, state, StatusError).Retry()
+			if err != nil {
+				t.Fatalf("Retry() from %q: %v", state, err)
+			}
+			if p.State() != state || p.Status() != StatusInProgress {
+				t.Errorf("Retry() from %q gave %q/%q, want %q/%q", state, p.State(), p.Status(), state, StatusInProgress)
+			}
+		}
+	})
+
+	t.Run("in_progressだとリトライできない", func(t *testing.T) {
+		if _, err := progress(t, StateCreatingProject, StatusInProgress).Retry(); err == nil {
+			t.Error("Retry() from in_progress = nil error, want an error")
+		}
+	})
+
+	t.Run("initial_setup_doneはリトライできない", func(t *testing.T) {
+		if _, err := progress(t, StateInitialSetupDone, StatusSuccess).Retry(); err == nil {
+			t.Error("Retry() from the done state = nil error, want an error")
+		}
+	})
+
+	t.Run("失敗してからリトライすると、同じ状態からまた進める", func(t *testing.T) {
+		p := progress(t, StateAddingBreakGlassGroups, StatusInProgress)
+		failed, err := p.Fail()
+		if err != nil {
+			t.Fatal(err)
+		}
+		retried, err := failed.Retry()
+		if err != nil {
+			t.Fatal(err)
+		}
+		next, err := retried.Advance()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if next.State() != StateAddingServiceAccountPermissions || next.Status() != StatusInProgress {
+			t.Errorf("got %q/%q, want %q/%q", next.State(), next.Status(), StateAddingServiceAccountPermissions, StatusInProgress)
+		}
+	})
+}
