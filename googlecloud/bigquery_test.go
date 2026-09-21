@@ -141,14 +141,9 @@ func newFakeBigQueryTablesServer(t *testing.T, tableStatus int, table *bigquery.
 }
 
 func TestBigQueryClient_GetTable(t *testing.T) {
-	t.Run("存在するテーブルのIDとスキーマ（列名、型、モード）を返す", func(t *testing.T) {
+	t.Run("存在するテーブルのIDを返す", func(t *testing.T) {
 		srv := newFakeBigQueryTablesServer(t, http.StatusOK, &bigquery.Table{
 			TableReference: &bigquery.TableReference{ProjectId: "my-project", DatasetId: "my_dataset", TableId: "my_table"},
-			Schema: &bigquery.TableSchema{Fields: []*bigquery.TableFieldSchema{
-				{Name: "request_id", Type: "STRING", Mode: "REQUIRED"},
-				{Name: "created_at", Type: "TIMESTAMP", Mode: "NULLABLE"},
-				{Name: "members", Type: "STRING", Mode: "REPEATED"},
-			}},
 		}, http.StatusOK)
 		client := newTestBigQueryClient(t, srv)
 
@@ -156,11 +151,7 @@ func TestBigQueryClient_GetTable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetTable() = %v, want nil error", err)
 		}
-		want := &Table{ID: "my_table", Schema: []Field{
-			{Name: "request_id", Type: "STRING", Mode: "REQUIRED"},
-			{Name: "created_at", Type: "TIMESTAMP", Mode: "NULLABLE"},
-			{Name: "members", Type: "STRING", Mode: "REPEATED"},
-		}}
+		want := &Table{ID: "my_table"}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("GetTable() = %+v, want %+v", got, want)
 		}
@@ -222,21 +213,6 @@ func TestBigQueryClient_GetTable(t *testing.T) {
 		if gerr.Code != http.StatusNotFound {
 			t.Errorf("googleapi.Error.Code = %d, want %d", gerr.Code, http.StatusNotFound)
 		}
-	})
-}
-
-func TestDiffSchema(t *testing.T) {
-	t.Run("期待どおりのスキーマなら、差分はない", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("足りない列を報告する", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("型が違う列を報告する", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("期待にない余分な列は、差分にしない", func(t *testing.T) {
-		t.Skip("not implemented")
 	})
 }
 

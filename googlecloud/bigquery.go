@@ -30,19 +30,6 @@ type Dataset struct {
 type Table struct {
 	// ID is the table ID, like "my_table".
 	ID string
-	// Schema is the columns of the table. It is empty for a table without a
-	// schema.
-	Schema []Field
-}
-
-// Field is a column of a table.
-type Field struct {
-	// Name is the column name.
-	Name string
-	// Type is the type the API reports, like "STRING" or "TIMESTAMP".
-	Type string
-	// Mode is "NULLABLE", "REQUIRED" or "REPEATED".
-	Mode string
 }
 
 // BigQueryClient is a client for BigQuery.
@@ -91,12 +78,5 @@ func (c *BigQueryClient) GetTable(ctx context.Context, projectID, datasetID, tab
 	if err != nil {
 		return nil, fmt.Errorf("get table: %w", err)
 	}
-
-	var schema []Field
-	if t.Schema != nil {
-		for _, f := range t.Schema.Fields {
-			schema = append(schema, Field{Name: f.Name, Type: f.Type, Mode: f.Mode})
-		}
-	}
-	return &Table{ID: t.TableReference.TableId, Schema: schema}, nil
+	return &Table{ID: t.TableReference.TableId}, nil
 }
