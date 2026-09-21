@@ -25,7 +25,7 @@ func TestRequiredIAMStructure(t *testing.T) {
 	}
 	observerEmail := email(t, "observer@example-project.iam.gserviceaccount.com")
 
-	t.Run("ultimateグループに無条件のOwnerを割り当てる", func(t *testing.T) {
+	t.Run("ultimateグループにOwnerロールを割り当てる", func(t *testing.T) {
 		structure := NewRequiredIAMStructure(breakGlass, developerGroup, developerRoles, observerEmail)
 		mapping := structure.BreakGlassUltimateGroup
 		if got, want := mapping.Group().Email(), breakGlass.UltimateGroup().Email(); got != want {
