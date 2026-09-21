@@ -12,13 +12,13 @@ func InitiateProjectCreation(request domain.ProjectCreationRequest) (InitiatePro
 	return InitiateProjectCreationResponse{}, nil
 }
 
-// GetSetupProgressResponse is the result of looking up a project creation's
-// setup progress.
-type GetSetupProgressResponse struct{}
+// GetProjectCreationProgressResponse is the result of looking up a project
+// creation's progress.
+type GetProjectCreationProgressResponse struct{}
 
-// GetSetupProgress returns the setup progress for a project creation request.
-func GetSetupProgress(id domain.ProjectCreationID) (GetSetupProgressResponse, error) {
-	return GetSetupProgressResponse{}, nil
+// GetProjectCreationProgress returns the progress for a project creation request.
+func GetProjectCreationProgress(id domain.ProjectCreationID) (GetProjectCreationProgressResponse, error) {
+	return GetProjectCreationProgressResponse{}, nil
 }
 
 // RestartProjectCreationResponse is the result of restarting a project

@@ -52,13 +52,14 @@ const (
 // ProjectCreationID identifies a project creation request.
 type ProjectCreationID string
 
-// SetupProgress is the persisted state of a project creation request. It is
-// immutable: Advance, Fail and Retry return the next SetupProgress.
+// ProjectCreationProgress is the persisted state of a project creation request.
+// It is immutable: Advance, Fail and Retry return the next
+// ProjectCreationProgress.
 //
 // The valid combinations of State and Status are:
 //   - StateInitialSetupDone with StatusSuccess
 //   - any other State with StatusInProgress or StatusError
-type SetupProgress struct {
+type ProjectCreationProgress struct {
 	revision int
 	id       ProjectCreationID
 	request  ProjectCreationRequest
@@ -66,79 +67,79 @@ type SetupProgress struct {
 	status   Status
 }
 
-// NewSetupProgress returns a SetupProgress, or an error if state is unknown or
+// NewProjectCreationProgress returns a ProjectCreationProgress, or an error if state is unknown or
 // status is not valid for state, id is empty, or revision is less than one. Use it to restore a
-// SetupProgress that was stored.
-func NewSetupProgress(id ProjectCreationID, revision int, request ProjectCreationRequest, state State, status Status) (SetupProgress, error) {
+// ProjectCreationProgress that was stored.
+func NewProjectCreationProgress(id ProjectCreationID, revision int, request ProjectCreationRequest, state State, status Status) (ProjectCreationProgress, error) {
 	if id == "" {
-		return SetupProgress{}, errors.New("project creation ID is empty")
+		return ProjectCreationProgress{}, errors.New("project creation ID is empty")
 	}
 	if revision < 1 {
-		return SetupProgress{}, fmt.Errorf("project creation revision is %d, want at least 1", revision)
+		return ProjectCreationProgress{}, fmt.Errorf("project creation revision is %d, want at least 1", revision)
 	}
 	if !slices.Contains(states, state) {
-		return SetupProgress{}, fmt.Errorf("unknown state %q", state)
+		return ProjectCreationProgress{}, fmt.Errorf("unknown state %q", state)
 	}
 	if state == StateInitialSetupDone {
 		if status != StatusSuccess {
-			return SetupProgress{}, fmt.Errorf("invalid status %q for state %q: must be %q", status, state, StatusSuccess)
+			return ProjectCreationProgress{}, fmt.Errorf("invalid status %q for state %q: must be %q", status, state, StatusSuccess)
 		}
 	} else if status != StatusInProgress && status != StatusError {
-		return SetupProgress{}, fmt.Errorf("invalid status %q for state %q: must be %q or %q", status, state, StatusInProgress, StatusError)
+		return ProjectCreationProgress{}, fmt.Errorf("invalid status %q for state %q: must be %q or %q", status, state, StatusInProgress, StatusError)
 	}
-	return SetupProgress{revision: revision, id: id, request: cloneProjectCreationRequest(request), state: state, status: status}, nil
+	return ProjectCreationProgress{revision: revision, id: id, request: cloneProjectCreationRequest(request), state: state, status: status}, nil
 }
 
 // ID returns the identifier of the project creation request.
-func (p SetupProgress) ID() ProjectCreationID { return p.id }
+func (p ProjectCreationProgress) ID() ProjectCreationID { return p.id }
 
 // Revision returns the one-based revision of the project creation request.
-func (p SetupProgress) Revision() int { return p.revision }
+func (p ProjectCreationProgress) Revision() int { return p.revision }
 
 // Request returns a copy of the project creation request being processed.
-func (p SetupProgress) Request() ProjectCreationRequest {
+func (p ProjectCreationProgress) Request() ProjectCreationRequest {
 	return cloneProjectCreationRequest(p.request)
 }
 
-func (p SetupProgress) State() State { return p.state }
+func (p ProjectCreationProgress) State() State { return p.state }
 
-func (p SetupProgress) Status() Status { return p.status }
+func (p ProjectCreationProgress) Status() Status { return p.status }
 
 // IsDone reports whether the initial setup has finished.
-func (p SetupProgress) IsDone() bool { return p.state == StateInitialSetupDone }
+func (p ProjectCreationProgress) IsDone() bool { return p.state == StateInitialSetupDone }
 
-// Advance returns the SetupProgress after the current operation succeeded: the
+// Advance returns the ProjectCreationProgress after the current operation succeeded: the
 // next State with StatusInProgress, or StateInitialSetupDone with StatusSuccess
 // after the last operation. It returns an error unless p is StatusInProgress.
-func (p SetupProgress) Advance() (SetupProgress, error) {
+func (p ProjectCreationProgress) Advance() (ProjectCreationProgress, error) {
 	if p.status != StatusInProgress {
-		return SetupProgress{}, fmt.Errorf("cannot advance from state %q with status %q: it is not in progress", p.state, p.status)
+		return ProjectCreationProgress{}, fmt.Errorf("cannot advance from state %q with status %q: it is not in progress", p.state, p.status)
 	}
 	// StatusInProgress is never paired with StateInitialSetupDone, the last state,
 	// so there is always a next one.
 	next := states[slices.Index(states, p.state)+1]
 	if next == StateInitialSetupDone {
-		return SetupProgress{revision: p.revision, id: p.id, request: p.request, state: next, status: StatusSuccess}, nil
+		return ProjectCreationProgress{revision: p.revision, id: p.id, request: p.request, state: next, status: StatusSuccess}, nil
 	}
-	return SetupProgress{revision: p.revision, id: p.id, request: p.request, state: next, status: StatusInProgress}, nil
+	return ProjectCreationProgress{revision: p.revision, id: p.id, request: p.request, state: next, status: StatusInProgress}, nil
 }
 
-// Fail returns the SetupProgress after the current operation failed: the same
+// Fail returns the ProjectCreationProgress after the current operation failed: the same
 // State with StatusError. It returns an error unless p is StatusInProgress.
-func (p SetupProgress) Fail() (SetupProgress, error) {
+func (p ProjectCreationProgress) Fail() (ProjectCreationProgress, error) {
 	if p.status != StatusInProgress {
-		return SetupProgress{}, fmt.Errorf("cannot fail state %q with status %q: it is not in progress", p.state, p.status)
+		return ProjectCreationProgress{}, fmt.Errorf("cannot fail state %q with status %q: it is not in progress", p.state, p.status)
 	}
-	return SetupProgress{revision: p.revision, id: p.id, request: p.request, state: p.state, status: StatusError}, nil
+	return ProjectCreationProgress{revision: p.revision, id: p.id, request: p.request, state: p.state, status: StatusError}, nil
 }
 
-// Retry returns the SetupProgress after the failed operation is tried again: the
+// Retry returns the ProjectCreationProgress after the failed operation is tried again: the
 // same State with StatusInProgress. It returns an error unless p is StatusError.
-func (p SetupProgress) Retry() (SetupProgress, error) {
+func (p ProjectCreationProgress) Retry() (ProjectCreationProgress, error) {
 	if p.status != StatusError {
-		return SetupProgress{}, fmt.Errorf("cannot retry state %q with status %q: it is not an error", p.state, p.status)
+		return ProjectCreationProgress{}, fmt.Errorf("cannot retry state %q with status %q: it is not an error", p.state, p.status)
 	}
-	return SetupProgress{revision: p.revision, id: p.id, request: p.request, state: p.state, status: StatusInProgress}, nil
+	return ProjectCreationProgress{revision: p.revision, id: p.id, request: p.request, state: p.state, status: StatusInProgress}, nil
 }
 
 func cloneProjectCreationRequest(request ProjectCreationRequest) ProjectCreationRequest {

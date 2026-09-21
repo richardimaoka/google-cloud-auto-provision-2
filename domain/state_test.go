@@ -2,7 +2,7 @@ package domain
 
 import "testing"
 
-func TestNewSetupProgress(t *testing.T) {
+func TestNewProjectCreationProgress(t *testing.T) {
 	tests := []struct {
 		name     string
 		id       ProjectCreationID
@@ -26,15 +26,15 @@ func TestNewSetupProgress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := NewSetupProgress(tt.id, tt.revision, projectCreationRequest(t), tt.state, tt.status)
+			p, err := NewProjectCreationProgress(tt.id, tt.revision, projectCreationRequest(t), tt.state, tt.status)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("NewSetupProgress(%q, %d, %q, %q) = nil error, want an error", tt.id, tt.revision, tt.state, tt.status)
+					t.Fatalf("NewProjectCreationProgress(%q, %d, %q, %q) = nil error, want an error", tt.id, tt.revision, tt.state, tt.status)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("NewSetupProgress(%q, %d, %q, %q): %v", tt.id, tt.revision, tt.state, tt.status, err)
+				t.Fatalf("NewProjectCreationProgress(%q, %d, %q, %q): %v", tt.id, tt.revision, tt.state, tt.status, err)
 			}
 			if p.ID() != tt.id || p.Revision() != tt.revision || p.State() != tt.state || p.Status() != tt.status {
 				t.Errorf("got %q/%d/%q/%q, want %q/%d/%q/%q", p.ID(), p.Revision(), p.State(), p.Status(), tt.id, tt.revision, tt.state, tt.status)
@@ -56,17 +56,17 @@ func projectCreationRequest(t *testing.T) ProjectCreationRequest {
 	return request
 }
 
-// progress returns a SetupProgress, failing the test if it is not valid.
-func progress(t *testing.T, state State, status Status) SetupProgress {
+// progress returns a ProjectCreationProgress, failing the test if it is not valid.
+func progress(t *testing.T, state State, status Status) ProjectCreationProgress {
 	t.Helper()
-	p, err := NewSetupProgress("request-123", 1, projectCreationRequest(t), state, status)
+	p, err := NewProjectCreationProgress("request-123", 1, projectCreationRequest(t), state, status)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return p
 }
 
-func TestSetupProgress_Advance(t *testing.T) {
+func TestProjectCreationProgress_Advance(t *testing.T) {
 	// 正常系では、最初の状態から最後まで順番に進む。
 	want := []struct {
 		state  State
@@ -104,7 +104,7 @@ func TestSetupProgress_Advance(t *testing.T) {
 		t.Errorf("IsDone() = false at the end, want true")
 	}
 
-	t.Run("進んでも元のSetupProgressは変わらない", func(t *testing.T) {
+	t.Run("進んでも元のProjectCreationProgressは変わらない", func(t *testing.T) {
 		before := progress(t, StateCreatingProject, StatusInProgress)
 		if _, err := before.Advance(); err != nil {
 			t.Fatal(err)
@@ -127,7 +127,7 @@ func TestSetupProgress_Advance(t *testing.T) {
 	})
 }
 
-func TestSetupProgress_Fail(t *testing.T) {
+func TestProjectCreationProgress_Fail(t *testing.T) {
 	t.Run("in_progressの状態は同じ状態のままerrorになる", func(t *testing.T) {
 		for _, state := range states[:len(states)-1] {
 			p, err := progress(t, state, StatusInProgress).Fail()
@@ -153,7 +153,7 @@ func TestSetupProgress_Fail(t *testing.T) {
 	})
 }
 
-func TestSetupProgress_Retry(t *testing.T) {
+func TestProjectCreationProgress_Retry(t *testing.T) {
 	t.Run("errorの状態は同じ状態のままin_progressに戻る", func(t *testing.T) {
 		for _, state := range states[:len(states)-1] {
 			p, err := progress(t, state, StatusError).Retry()
