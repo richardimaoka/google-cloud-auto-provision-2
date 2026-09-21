@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	bigquery "google.golang.org/api/bigquery/v2"
@@ -32,6 +34,16 @@ type Dataset struct {
 type Table struct {
 	// ID is the table ID, like "my_table".
 	ID string
+}
+
+// ProjectCreationRecord is one row of the project_creation_records table.
+//
+// This is a provisional application record. It will be replaced with the
+// application's table-specific records once their Terraform definitions exist.
+type ProjectCreationRecord struct {
+	ID          string
+	DisplayName string
+	CreatedAt   time.Time
 }
 
 // BigQueryClient is a client for BigQuery.
@@ -135,4 +147,53 @@ func (c *BigQueryClient) query(ctx context.Context, projectID, sql string, param
 		token = res.PageToken
 	}
 	return schema, rows, nil
+}
+
+// Query returns all records from the project's project_creation_records table.
+func (c *BigQueryClient) Query(ctx context.Context, projectID, datasetID string) ([]ProjectCreationRecord, error) {
+	if !validBigQueryIdentifier(projectID) || !validBigQueryIdentifier(datasetID) {
+		return nil, fmt.Errorf("query: invalid project or dataset ID")
+	}
+	sql := fmt.Sprintf("SELECT request_id, display_name, created_at FROM `%s.%s.project_creation_records`", projectID, datasetID)
+	_, rows, err := c.query(ctx, projectID, sql, nil)
+	if err != nil {
+		return nil, err
+	}
+	records := make([]ProjectCreationRecord, 0, len(rows))
+	for i, row := range rows {
+		record, err := projectCreationRecordFromRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("query: row %d: %w", i, err)
+		}
+		records = append(records, record)
+	}
+	return records, nil
+}
+
+func projectCreationRecordFromRow(row *bigquery.TableRow) (ProjectCreationRecord, error) {
+	if len(row.F) != 3 {
+		return ProjectCreationRecord{}, fmt.Errorf("got %d cells, want 3", len(row.F))
+	}
+	id, ok := row.F[0].V.(string)
+	if !ok {
+		return ProjectCreationRecord{}, fmt.Errorf("request_id is %T, want string", row.F[0].V)
+	}
+	name, ok := row.F[1].V.(string)
+	if !ok {
+		return ProjectCreationRecord{}, fmt.Errorf("display_name is %T, want string", row.F[1].V)
+	}
+	timestamp, ok := row.F[2].V.(string)
+	if !ok {
+		return ProjectCreationRecord{}, fmt.Errorf("created_at is %T, want string", row.F[2].V)
+	}
+	seconds, err := strconv.ParseFloat(timestamp, 64)
+	if err != nil {
+		return ProjectCreationRecord{}, fmt.Errorf("parse created_at %q: %w", timestamp, err)
+	}
+	createdAt := time.Unix(int64(seconds), int64((seconds-float64(int64(seconds)))*1e9)).UTC()
+	return ProjectCreationRecord{ID: id, DisplayName: name, CreatedAt: createdAt}, nil
+}
+
+func validBigQueryIdentifier(id string) bool {
+	return id != "" && !strings.ContainsAny(id, "`.")
 }

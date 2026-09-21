@@ -496,20 +496,69 @@ func TestBigQueryClient_query(t *testing.T) {
 }
 
 func TestBigQueryClient_Query(t *testing.T) {
-	t.Run("SELECT の結果を、列名をキーにした行として返す", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
 	t.Run("TIMESTAMP を time.Time に変換する", func(t *testing.T) {
-		t.Skip("not implemented")
+		job := &bigquery.JobReference{ProjectId: "my-project", JobId: "job1", Location: "US"}
+		srv := newFakeBigQueryJobsServer(t, func(w http.ResponseWriter, r *http.Request) {
+			respondJSON(w, &bigquery.QueryResponse{
+				JobComplete:  true,
+				JobReference: job,
+				Rows: []*bigquery.TableRow{{
+					F: []*bigquery.TableCell{
+						{V: "request-1"},
+						{V: "Example Project"},
+						{V: "1700000000.25"},
+					},
+				}},
+			})
+		}, nil)
+		client := newTestBigQueryClient(t, srv)
+
+		got, err := client.Query(context.Background(), "my-project", "my_dataset")
+		if err != nil {
+			t.Fatalf("Query() = %v, want nil error", err)
+		}
+		want := []ProjectCreationRecord{{ID: "request-1", DisplayName: "Example Project", CreatedAt: time.Unix(1700000000, 250000000).UTC()}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Query() = %+v, want %+v", got, want)
+		}
 	})
-	t.Run("文字列などの値を SQL 文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
-		t.Skip("not implemented")
+	t.Run("固定された project_creation_records の列だけを問い合わせる", func(t *testing.T) {
+		job := &bigquery.JobReference{ProjectId: "my-project", JobId: "job1", Location: "US"}
+		bodies := make(chan map[string]any, 1)
+		srv := newFakeBigQueryJobsServer(t, func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			bodies <- body
+			respondJSON(w, &bigquery.QueryResponse{JobComplete: true, JobReference: job})
+		}, nil)
+		client := newTestBigQueryClient(t, srv)
+
+		if _, err := client.Query(context.Background(), "my-project", "my_dataset"); err != nil {
+			t.Fatalf("Query() = %v, want nil error", err)
+		}
+		if got := (<-bodies)["query"]; got != "SELECT request_id, display_name, created_at FROM `my-project.my_dataset.project_creation_records`" {
+			t.Errorf("query = %q, want fixed project_creation_records query", got)
+		}
 	})
 	t.Run("SQL の文法エラーは、原因が分かるエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryJobsServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			respondJSON(w, map[string]any{"error": map[string]any{"code": 400, "message": "Syntax error"}})
+		}, nil)
+		_, err := newTestBigQueryClient(t, srv).Query(context.Background(), "my-project", "my_dataset")
+		if err == nil || !strings.Contains(err.Error(), "Syntax error") {
+			t.Errorf("Query() error = %v, want syntax error", err)
+		}
 	})
 	t.Run("存在しないテーブルはエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryJobsServer(t, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}, nil)
+		_, err := newTestBigQueryClient(t, srv).Query(context.Background(), "my-project", "my_dataset")
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) || gerr.Code != http.StatusNotFound {
+			t.Errorf("Query() error = %v, want wrapped 404", err)
+		}
 	})
 }
 
