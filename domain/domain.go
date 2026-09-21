@@ -31,6 +31,37 @@ func NewProjectCreationRequest(requester Email, developerGroup GoogleGroup) (Pro
 	}, nil
 }
 
+// minDeveloperGroupMembers is the fewest members a developer group may have.
+const minDeveloperGroupMembers = 2
+
+// Validate returns an error if r does not fit org, or nil if it does. It reports
+// every problem found, not just the first. Domains are compared case-insensitively.
+//
+// The requester and the developer group must belong to org's domain, and so must
+// every member of the developer group. The developer group must have at least
+// minDeveloperGroupMembers members.
+func (r ProjectCreationRequest) Validate(org Organization) error {
+	var errs []error
+	if n := len(r.DeveloperGroup.Members); n < minDeveloperGroupMembers {
+		errs = append(errs, fmt.Errorf("developer group %q has %d member(s), want at least %d", r.DeveloperGroup.Email, n, minDeveloperGroupMembers))
+	}
+	if !strings.EqualFold(r.Requester.Domain(), org.Domain) {
+		errs = append(errs, fmt.Errorf("requester %q is not in the organization domain %q", r.Requester, org.Domain))
+	}
+	if !strings.EqualFold(r.DeveloperGroup.Email.Domain(), org.Domain) {
+		errs = append(errs, fmt.Errorf("developer group %q is not in the organization domain %q", r.DeveloperGroup.Email, org.Domain))
+	}
+	if !strings.EqualFold(r.DeveloperGroup.Domain, org.Domain) {
+		errs = append(errs, fmt.Errorf("developer group domain %q is not the organization domain %q", r.DeveloperGroup.Domain, org.Domain))
+	}
+	for _, m := range r.DeveloperGroup.Members {
+		if !strings.EqualFold(m.Domain, org.Domain) {
+			errs = append(errs, fmt.Errorf("developer group member %q is not in the organization domain %q", m.Email, org.Domain))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Email is a validated email address.
 type Email struct {
 	value string
