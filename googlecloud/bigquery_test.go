@@ -1,19 +1,110 @@
 package googlecloud
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
+	"strings"
+	"testing"
+
+	bigquery "google.golang.org/api/bigquery/v2"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/api/option"
+)
+
+// newFakeBigQueryServer fakes the BigQuery dataset endpoint that GetDataset
+// relies on. It answers status for GET /projects/my-project/datasets/my_dataset,
+// returning dataset when status is 200, and 404 for any other project or dataset
+// ID.
+func newFakeBigQueryServer(t *testing.T, status int, dataset *bigquery.Dataset) *httptest.Server {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/projects/my-project/datasets/my_dataset", func(w http.ResponseWriter, r *http.Request) {
+		if status != http.StatusOK {
+			w.WriteHeader(status)
+			return
+		}
+		json.NewEncoder(w).Encode(dataset)
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func newTestBigQueryClient(t *testing.T, srv *httptest.Server) *BigQueryClient {
+	t.Helper()
+
+	client, err := NewBigQueryClient(context.Background(), option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatalf("NewBigQueryClient: %v", err)
+	}
+	return client
+}
 
 func TestBigQueryClient_GetDataset(t *testing.T) {
 	t.Run("存在するデータセットのIDとロケーションを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryServer(t, http.StatusOK, &bigquery.Dataset{
+			DatasetReference: &bigquery.DatasetReference{ProjectId: "my-project", DatasetId: "my_dataset"},
+			Location:         "US",
+		})
+		client := newTestBigQueryClient(t, srv)
+
+		got, err := client.GetDataset(context.Background(), "my-project", "my_dataset")
+		if err != nil {
+			t.Fatalf("GetDataset() = %v, want nil error", err)
+		}
+		want := &Dataset{ID: "my_dataset", Location: "US"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("GetDataset() = %+v, want %+v", got, want)
+		}
 	})
 	t.Run("存在しないデータセットはエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryServer(t, http.StatusNotFound, nil)
+		client := newTestBigQueryClient(t, srv)
+
+		got, err := client.GetDataset(context.Background(), "my-project", "my_dataset")
+		if err == nil {
+			t.Fatal("GetDataset() = nil error, want error")
+		}
+		if !strings.Contains(err.Error(), "get dataset") {
+			t.Errorf("GetDataset() error = %q, want it to contain %q", err, "get dataset")
+		}
+		if got != nil {
+			t.Errorf("GetDataset() = %+v on error, want nil", got)
+		}
 	})
 	t.Run("権限不足はエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryServer(t, http.StatusForbidden, nil)
+		client := newTestBigQueryClient(t, srv)
+
+		got, err := client.GetDataset(context.Background(), "my-project", "my_dataset")
+		if err == nil {
+			t.Fatal("GetDataset() = nil error, want error")
+		}
+		if !strings.Contains(err.Error(), "get dataset") {
+			t.Errorf("GetDataset() error = %q, want it to contain %q", err, "get dataset")
+		}
+		if got != nil {
+			t.Errorf("GetDataset() = %+v on error, want nil", got)
+		}
 	})
 	t.Run("エラーから *googleapi.Error を取り出せる", func(t *testing.T) {
-		t.Skip("not implemented")
+		srv := newFakeBigQueryServer(t, http.StatusNotFound, nil)
+		client := newTestBigQueryClient(t, srv)
+
+		_, err := client.GetDataset(context.Background(), "my-project", "my_dataset")
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) {
+			t.Fatalf("GetDataset() error = %v, want it to wrap a *googleapi.Error", err)
+		}
+		if gerr.Code != http.StatusNotFound {
+			t.Errorf("googleapi.Error.Code = %d, want %d", gerr.Code, http.StatusNotFound)
+		}
 	})
 }
 

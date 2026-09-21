@@ -2,7 +2,6 @@ package googlecloud
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	bigquery "google.golang.org/api/bigquery/v2"
@@ -32,5 +31,12 @@ func NewBigQueryClient(ctx context.Context, opts ...option.ClientOption) (*BigQu
 
 // GetDataset returns the dataset with the given ID in the given project.
 func (c *BigQueryClient) GetDataset(ctx context.Context, projectID, datasetID string) (*Dataset, error) {
-	return nil, errors.New("not implemented")
+	ds, err := c.service.Datasets.Get(projectID, datasetID).Context(ctx).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get dataset: %w", err)
+	}
+	return &Dataset{
+		ID:       ds.DatasetReference.DatasetId,
+		Location: ds.Location,
+	}, nil
 }
