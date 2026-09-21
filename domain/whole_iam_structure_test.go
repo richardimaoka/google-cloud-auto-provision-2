@@ -3,6 +3,7 @@ package domain
 import "testing"
 
 func TestWholeIAMStructure(t *testing.T) {
+	// ユーザー、グループ、サービスアカウントのマッピングを保持できる。
 	user := NewUserRoleMapping(email(t, "user@example.com"), []IAMRole{iamRole(t, "roles/viewer")}, nil)
 	developers := NewGroupRoleMapping(
 		NewGoogleGroup(email(t, "developers@example.com"), nil),
@@ -40,6 +41,8 @@ func TestWholeIAMStructure(t *testing.T) {
 }
 
 func TestWholeIAMStructure_mappingsAreCopied(t *testing.T) {
+	// NewWholeIAMStructure に渡した slice と GroupRoleMappings() が返した slice のどちらを変更しても、
+	// WholeIAMStructure が保持するグループマッピングは変わらない。
 	developers := NewGroupRoleMapping(
 		NewGoogleGroup(email(t, "developers@example.com"), nil),
 		nil,

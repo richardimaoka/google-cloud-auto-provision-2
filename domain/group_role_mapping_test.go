@@ -3,6 +3,7 @@ package domain
 import "testing"
 
 func TestGroupRoleMapping(t *testing.T) {
+	// 無条件ロールと条件付きロールを別々に保持できる。
 	group := NewGoogleGroup(email(t, "developers@example.com"), nil)
 	editor := iamRole(t, "roles/editor")
 	viewer := iamRole(t, "roles/viewer")
@@ -23,6 +24,7 @@ func TestGroupRoleMapping(t *testing.T) {
 }
 
 func TestGroupRoleMapping_slicesAreCopied(t *testing.T) {
+	// コンストラクタに渡したスライスの変更がマッピングに影響しない。
 	group := NewGoogleGroup(email(t, "developers@example.com"), nil)
 	editor := iamRole(t, "roles/editor")
 	viewer := iamRole(t, "roles/viewer")
@@ -43,6 +45,7 @@ func TestGroupRoleMapping_slicesAreCopied(t *testing.T) {
 }
 
 func TestNewIAMCondition(t *testing.T) {
+	// 有効な CEL 式とメタデータを条件として保持できる。
 	condition, err := NewIAMCondition("request.time < timestamp('2030-01-01T00:00:00Z')", "temporary", "Expires in 2030")
 	if err != nil {
 		t.Fatalf("NewIAMCondition() error = %v", err)
@@ -59,6 +62,7 @@ func TestNewIAMCondition(t *testing.T) {
 }
 
 func TestNewIAMCondition_rejectsEmptyExpression(t *testing.T) {
+	// 空白だけの CEL 式は拒否する。
 	if _, err := NewIAMCondition("  ", "", ""); err == nil {
 		t.Fatal("NewIAMCondition() = nil error, want error")
 	}

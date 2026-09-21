@@ -3,6 +3,7 @@ package domain
 import "testing"
 
 func TestServiceAccountRoleMapping(t *testing.T) {
+	// サービスアカウントの無条件ロールと条件付きロールを保持できる。
 	serviceAccount := email(t, "service@example-project.iam.gserviceaccount.com")
 	role := iamRole(t, "roles/logging.viewer")
 	binding := NewServiceAccountRoleBinding(role, iamCondition(t, "request.time < timestamp('2030-01-01T00:00:00Z')"))

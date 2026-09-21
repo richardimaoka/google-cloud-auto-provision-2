@@ -3,6 +3,8 @@ package domain
 import "testing"
 
 func TestGoogleGroup_membersAreCopied(t *testing.T) {
+	// NewGoogleGroup に渡した slice と Members() が返した slice のどちらを変更しても、
+	// GoogleGroup が保持するメンバーは変わらない。
 	member1 := NewGoogleGroupMember(email(t, "member-1@example.com"), "MEMBER")
 	member2 := NewGoogleGroupMember(email(t, "member-2@example.com"), "MEMBER")
 	other := NewGoogleGroupMember(email(t, "outside-member@other.com"), "MEMBER")

@@ -3,6 +3,7 @@ package domain
 import "testing"
 
 func TestUserRoleMapping(t *testing.T) {
+	// ユーザーの無条件ロールと条件付きロールを保持できる。
 	user := email(t, "user@example.com")
 	role := iamRole(t, "roles/viewer")
 	binding := NewUserRoleBinding(role, iamCondition(t, "request.time < timestamp('2030-01-01T00:00:00Z')"))

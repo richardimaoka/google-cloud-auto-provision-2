@@ -3,6 +3,7 @@ package domain
 import "testing"
 
 func TestNewBreakGlass(t *testing.T) {
+	// 要件に一致する 2 グループから BreakGlass を作成できる。
 	ultimateMember := NewGoogleGroupMember(email(t, "ultimate-member@example.com"), "MEMBER")
 	emergencyMember := NewGoogleGroupMember(email(t, "emergency-member@example.com"), "MEMBER")
 	ultimateGroup := NewGoogleGroup(email(t, "ultimate@example.com"), []GoogleGroupMember{ultimateMember})
@@ -22,6 +23,7 @@ func TestNewBreakGlass(t *testing.T) {
 }
 
 func TestBreakGlass_GroupsAreCopied(t *testing.T) {
+	// 入力と accessor のグループを変更しても BreakGlass の状態は変わらない。
 	member := NewGoogleGroupMember(email(t, "member@example.com"), "MEMBER")
 	other := NewGoogleGroupMember(email(t, "other@example.com"), "MEMBER")
 	ultimateGroup := NewGoogleGroup(email(t, "ultimate@example.com"), []GoogleGroupMember{member})
@@ -44,7 +46,13 @@ func TestBreakGlass_GroupsAreCopied(t *testing.T) {
 }
 
 func TestNewBreakGlassRequirement(t *testing.T) {
-	requirement := breakGlassRequirement(t, "ultimate@example.com", "emergency@example.com")
+	// 2 つの環境変数を読み込み、それぞれを対応する非公開フィールドに保存する。
+	t.Setenv(BreakGlassUltimateGroupEmailEnv, "ultimate@example.com")
+	t.Setenv(BreakGlassEmergencyGroupEmailEnv, "emergency@example.com")
+	requirement, err := NewBreakGlassRequirement()
+	if err != nil {
+		t.Fatalf("NewBreakGlassRequirement() error = %v", err)
+	}
 	if got, want := requirement.ultimateGroupEmail.String(), "ultimate@example.com"; got != want {
 		t.Errorf("ultimateGroupEmail = %q, want %q", got, want)
 	}
@@ -54,6 +62,7 @@ func TestNewBreakGlassRequirement(t *testing.T) {
 }
 
 func TestNewBreakGlassRequirement_rejectsMissingEnvironmentVariable(t *testing.T) {
+	// 必須の環境変数が欠けている場合は要件を作成できない。
 	t.Setenv(BreakGlassUltimateGroupEmailEnv, "ultimate@example.com")
 	t.Setenv(BreakGlassEmergencyGroupEmailEnv, "")
 	if _, err := NewBreakGlassRequirement(); err == nil {
@@ -62,6 +71,7 @@ func TestNewBreakGlassRequirement_rejectsMissingEnvironmentVariable(t *testing.T
 }
 
 func TestNewBreakGlass_rejectsWrongGroups(t *testing.T) {
+	// 要件と異なるメールアドレスのグループは拒否する。
 	requirement := breakGlassRequirement(t, "ultimate@example.com", "emergency@example.com")
 	ultimate := NewGoogleGroup(email(t, "wrong-ultimate@example.com"), nil)
 	emergency := NewGoogleGroup(email(t, "emergency@example.com"), nil)
@@ -71,6 +81,7 @@ func TestNewBreakGlass_rejectsWrongGroups(t *testing.T) {
 }
 
 func TestNewBreakGlass_rejectsZeroRequirement(t *testing.T) {
+	// 設定されていないゼロ値の要件は拒否する。
 	ultimate := NewGoogleGroup(email(t, "ultimate@example.com"), nil)
 	emergency := NewGoogleGroup(email(t, "emergency@example.com"), nil)
 	if _, err := NewBreakGlass(BreakGlassRequirement{}, ultimate, emergency); err == nil {

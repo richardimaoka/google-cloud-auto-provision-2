@@ -3,6 +3,7 @@ package domain
 import "testing"
 
 func TestRequiredIAMStructure(t *testing.T) {
+	// 3 種類の必須グループマッピングを保持できる。
 	ultimate := NewGroupRoleMapping(
 		NewGoogleGroup(email(t, "ultimate@example.com"), nil),
 		[]IAMRole{iamRole(t, "roles/owner")},
