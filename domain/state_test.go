@@ -23,8 +23,8 @@ func TestNewProjectCreationProgress(t *testing.T) {
 		{name: "知らない状態だとエラー", id: "request-123", revision: 1, state: State("created_project"), status: StatusInProgress, wantErr: true},
 		{name: "知らないステータスだとエラー", id: "request-123", revision: 1, state: StateCreatingProject, status: Status("failed"), wantErr: true},
 		{name: "状態が空だとエラー", id: "request-123", revision: 1, state: "", status: StatusInProgress, wantErr: true},
-		{name: "IDが空だとエラー", revision: 1, state: StateInitiatingProjectCreation, status: StatusInProgress, wantErr: true},
-		{name: "revisionが0だとエラー", id: "request-123", state: StateInitiatingProjectCreation, status: StatusInProgress, wantErr: true},
+		{name: "IDが空だとエラー", revision: 1, state: StateCreatingProject, status: StatusInProgress, wantErr: true},
+		{name: "revisionが0だとエラー", id: "request-123", state: StateCreatingProject, status: StatusInProgress, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -75,10 +75,8 @@ func TestProjectCreationProgress_Advance(t *testing.T) {
 		state  State
 		status Status
 	}{
-		{StateInitiatingProjectCreation, StatusInProgress},
 		{StateCreatingProject, StatusInProgress},
-		{StateAddingBreakGlassGroups, StatusInProgress},
-		{StateAddingServiceAccountPermissions, StatusInProgress},
+		{StateAddingIAMBindings, StatusInProgress},
 		{StateAddingPAMEntitlements, StatusInProgress},
 		{StateInitialSetupDone, StatusSuccess},
 	}
@@ -118,7 +116,7 @@ func TestProjectCreationProgress_Advance(t *testing.T) {
 	})
 
 	t.Run("errorからは進めない", func(t *testing.T) {
-		if _, err := progress(t, StateAddingBreakGlassGroups, StatusError).Advance(); err == nil {
+		if _, err := progress(t, StateAddingIAMBindings, StatusError).Advance(); err == nil {
 			t.Error("Advance() from an error = nil error, want an error")
 		}
 	})
@@ -182,7 +180,7 @@ func TestProjectCreationProgress_Retry(t *testing.T) {
 	})
 
 	t.Run("失敗してからリトライすると、同じ状態からまた進める", func(t *testing.T) {
-		p := progress(t, StateAddingBreakGlassGroups, StatusInProgress)
+		p := progress(t, StateAddingIAMBindings, StatusInProgress)
 		failed, err := p.Fail()
 		if err != nil {
 			t.Fatal(err)
@@ -195,15 +193,15 @@ func TestProjectCreationProgress_Retry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if next.State() != StateAddingServiceAccountPermissions || next.Status() != StatusInProgress {
-			t.Errorf("got %q/%q, want %q/%q", next.State(), next.Status(), StateAddingServiceAccountPermissions, StatusInProgress)
+		if next.State() != StateAddingPAMEntitlements || next.Status() != StatusInProgress {
+			t.Errorf("got %q/%q, want %q/%q", next.State(), next.Status(), StateAddingPAMEntitlements, StatusInProgress)
 		}
 	})
 }
 
 func TestProjectCreationProgress_Amend(t *testing.T) {
 	t.Run("errorのリクエストを修正するとrevisionを増やしてerrorのまま返す", func(t *testing.T) {
-		before := progress(t, StateAddingBreakGlassGroups, StatusError)
+		before := progress(t, StateAddingIAMBindings, StatusError)
 		amendedRequest, err := NewProjectCreationRequest(
 			"Amended Project",
 			email(t, "amended-requester@example.com"),

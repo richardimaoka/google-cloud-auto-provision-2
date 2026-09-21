@@ -35,10 +35,9 @@ func InitiateProjectCreation(ctx context.Context, request InitiateProjectCreatio
 
 	// step:
 	//   以下をBigQueryに記録。同期で実行。
-	//     - ProjectCreationProgress, State = "initiating_project_creation", status = "in_progress"
+	//     - ProjectCreationProgress, State = "creating_project", status = "in_progress"
 	//   request.IDが記録済みなら重複申請なので、記録も後続処理の起動もせず、記録済みのIDで成功を返却。
 	//   ただし記録済みのrequestと中身が違う場合はエラーを返却。
-	//   (バリデーションはこの記録より前に済んでいるため、この状態は一瞬しか続かない。残すかどうかは要検討)
 
 	// early return:
 	//   ここで、記録したIDを含むレスポンスを返却。以降はgoroutineでバックグラウンド実行。
@@ -47,24 +46,16 @@ func InitiateProjectCreation(ctx context.Context, request InitiateProjectCreatio
 	//   呼び出し元はGetProjectCreationProgressで確認し、RestartProjectCreationで再開できる。
 
 	// step:
-	//   以下をBigQueryに記録した後で、プロジェクト作成requestをGoogle Cloudに送信。
-	//     - ProjectCreationProgress, State = "creating_project", status = "in_progress"
+	//   プロジェクト作成requestをGoogle Cloudに送信。
 	//   問題があれば以下をBigQueryに記録し、エラーを返却
 	//     - ProjectCreationProgress, State = "creating_project", status = "error"
 	//     - 問題と推奨解決法
 
 	// step:
-	//   以下をBigQueryに記録した後で、break glass設定requestをGoogle Cloudに送信。
-	//     - ProjectCreationProgress, State = "adding_break_glass_groups", status = "in_progress"
+	//   以下をBigQueryに記録した後で、IAM binding設定requestをGoogle Cloudに送信。
+	//     - ProjectCreationProgress, State = "adding_iam_bindings", status = "in_progress"
 	//   問題があれば以下をBigQueryに記録し、エラーを返却
-	//     - ProjectCreationProgress, State = "adding_break_glass_groups", status = "error"
-	//     - 問題と推奨解決法
-
-	// step:
-	//   以下をBigQueryに記録した後で、サービスアカウント権限設定requestをGoogle Cloudに送信。
-	//     - ProjectCreationProgress, State = "adding_service_account_permissions", status = "in_progress"
-	//   問題があれば以下をBigQueryに記録し、エラーを返却
-	//     - ProjectCreationProgress, State = "adding_service_account_permissions", status = "error"
+	//     - ProjectCreationProgress, State = "adding_iam_bindings", status = "error"
 	//     - 問題と推奨解決法
 
 	// step:

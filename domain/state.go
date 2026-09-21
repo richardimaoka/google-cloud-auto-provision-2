@@ -18,20 +18,16 @@ import (
 type State string
 
 const (
-	StateInitiatingProjectCreation       State = "initiating_project_creation"
-	StateCreatingProject                 State = "creating_project"
-	StateAddingBreakGlassGroups          State = "adding_break_glass_groups"
-	StateAddingServiceAccountPermissions State = "adding_service_account_permissions"
-	StateAddingPAMEntitlements           State = "adding_pam_entitlements"
-	StateInitialSetupDone                State = "initial_setup_done"
+	StateCreatingProject       State = "creating_project"
+	StateAddingIAMBindings     State = "adding_iam_bindings"
+	StateAddingPAMEntitlements State = "adding_pam_entitlements"
+	StateInitialSetupDone      State = "initial_setup_done"
 )
 
 // states lists the states in the order the setup visits them.
 var states = []State{
-	StateInitiatingProjectCreation,
 	StateCreatingProject,
-	StateAddingBreakGlassGroups,
-	StateAddingServiceAccountPermissions,
+	StateAddingIAMBindings,
 	StateAddingPAMEntitlements,
 	StateInitialSetupDone,
 }
