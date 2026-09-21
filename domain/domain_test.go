@@ -13,14 +13,17 @@ func email(t *testing.T, s string) Email {
 }
 
 func TestProjectCreationRequest_Validate(t *testing.T) {
-	org := Organization{ID: "123456789012", Domain: "example.com"}
+	org, err := NewOrganization("123456789012", "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Two members in the organization, the fewest a valid group may have.
 	twoMembers := []string{"member-1@example.com", "member-2@example.com"}
 
 	tests := []struct {
 		name string
-		// The request, written as plain strings. An empty email is the zero Email.
+		// The request, written as plain strings.
 		requester  string
 		groupEmail string
 		members    []string
@@ -89,17 +92,15 @@ func TestProjectCreationRequest_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var members []GoogleGroupMember
 			for _, m := range tt.members {
-				members = append(members, GoogleGroupMember{Email: email(t, m)})
+				members = append(members, NewGoogleGroupMember(email(t, m), "MEMBER"))
 			}
-			r := ProjectCreationRequest{
-				Requester: email(t, tt.requester),
-				DeveloperGroup: GoogleGroup{
-					Email:   email(t, tt.groupEmail),
-					Members: members,
-				},
+			group := NewGoogleGroup(email(t, tt.groupEmail), members)
+			r, err := NewProjectCreationRequest(email(t, tt.requester), group)
+			if err != nil {
+				t.Fatal(err)
 			}
 
-			err := r.Validate(org)
+			err = r.Validate(org)
 
 			if tt.wantErrs == 0 {
 				if err != nil {
@@ -117,6 +118,87 @@ func TestProjectCreationRequest_Validate(t *testing.T) {
 			}
 			if got := len(joined.Unwrap()); got != tt.wantErrs {
 				t.Errorf("Validate() reported %d error(s), want %d: %v", got, tt.wantErrs, err)
+			}
+		})
+	}
+}
+
+func TestNewOrganization(t *testing.T) {
+	tests := []struct {
+		name    string
+		id      string
+		domain  string
+		wantErr bool
+	}{
+		{name: "数字のIDとドメインがあれば有効", id: "123456789012", domain: "example.com"},
+		{name: "IDが空だとエラー", id: "", domain: "example.com", wantErr: true},
+		{name: "IDに数字以外が含まれるとエラー", id: "12345abc", domain: "example.com", wantErr: true},
+		{name: "IDにorganizations/の接頭辞が付いているとエラー", id: "organizations/123456789012", domain: "example.com", wantErr: true},
+		{name: "ドメインが空だとエラー", id: "123456789012", domain: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			org, err := NewOrganization(tt.id, tt.domain)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("NewOrganization(%q, %q) = nil error, want an error", tt.id, tt.domain)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewOrganization(%q, %q): %v", tt.id, tt.domain, err)
+			}
+			if org.ID() != tt.id || org.Domain() != tt.domain {
+				t.Errorf("got ID %q and Domain %q, want %q and %q", org.ID(), org.Domain(), tt.id, tt.domain)
+			}
+		})
+	}
+}
+
+func TestGoogleGroup_membersAreCopied(t *testing.T) {
+	member1 := NewGoogleGroupMember(email(t, "member-1@example.com"), "MEMBER")
+	member2 := NewGoogleGroupMember(email(t, "member-2@example.com"), "MEMBER")
+	other := NewGoogleGroupMember(email(t, "outside-member@other.com"), "MEMBER")
+
+	input := []GoogleGroupMember{member1, member2}
+	g := NewGoogleGroup(email(t, "developer-group@example.com"), input)
+
+	// Changing the slice passed to NewGoogleGroup must not change the group.
+	input[0] = other
+	if got := g.Members()[0]; got != member1 {
+		t.Errorf("the group followed a change to the input slice: first member is %v", got.Email())
+	}
+
+	// Changing the slice returned by Members must not change the group either.
+	g.Members()[1] = other
+	if got := g.Members()[1]; got != member2 {
+		t.Errorf("the group followed a change to the returned slice: second member is %v", got.Email())
+	}
+}
+
+func TestGoogleGroup_SameDomain(t *testing.T) {
+	tests := []struct {
+		name    string
+		members []string
+		want    bool
+	}{
+		{name: "メンバーがいなければfalse", members: nil, want: false},
+		{name: "全員がグループと同じドメインならtrue", members: []string{"member-1@example.com", "member-2@example.com"}, want: true},
+		{name: "ドメインの大文字小文字が違ってもtrue", members: []string{"member-1@EXAMPLE.com"}, want: true},
+		{name: "1人でも別のドメインならfalse", members: []string{"member-1@example.com", "outside-member@other.com"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var members []GoogleGroupMember
+			for _, m := range tt.members {
+				members = append(members, NewGoogleGroupMember(email(t, m), "MEMBER"))
+			}
+			g := NewGoogleGroup(email(t, "developer-group@example.com"), members)
+
+			if got := g.SameDomain(); got != tt.want {
+				t.Errorf("SameDomain() = %v, want %v", got, tt.want)
 			}
 		})
 	}

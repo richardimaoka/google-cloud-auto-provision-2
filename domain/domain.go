@@ -8,6 +8,7 @@ import (
 	"fmt"
 	// Only parses addresses, never touches the network, so it keeps this package free of I/O.
 	"net/mail"
+	"slices"
 	"strings"
 )
 
@@ -22,7 +23,7 @@ func NewProjectCreationRequest(requester Email, developerGroup GoogleGroup) (Pro
 	if requester == (Email{}) {
 		return ProjectCreationRequest{}, errors.New("requester is empty")
 	}
-	if developerGroup.Email == (Email{}) {
+	if developerGroup.email == (Email{}) {
 		return ProjectCreationRequest{}, errors.New("developer group email is empty")
 	}
 	return ProjectCreationRequest{
@@ -42,18 +43,18 @@ const minDeveloperGroupMembers = 2
 // minDeveloperGroupMembers members.
 func (r ProjectCreationRequest) Validate(org Organization) error {
 	var errs []error
-	if n := len(r.DeveloperGroup.Members); n < minDeveloperGroupMembers {
-		errs = append(errs, fmt.Errorf("developer group %q has %d member(s), want at least %d", r.DeveloperGroup.Email, n, minDeveloperGroupMembers))
+	if n := len(r.DeveloperGroup.members); n < minDeveloperGroupMembers {
+		errs = append(errs, fmt.Errorf("developer group %q has %d member(s), want at least %d", r.DeveloperGroup.email, n, minDeveloperGroupMembers))
 	}
-	if !strings.EqualFold(r.Requester.Domain(), org.Domain) {
-		errs = append(errs, fmt.Errorf("requester %q is not in the organization domain %q", r.Requester, org.Domain))
+	if !strings.EqualFold(r.Requester.Domain(), org.domain) {
+		errs = append(errs, fmt.Errorf("requester %q is not in the organization domain %q", r.Requester, org.domain))
 	}
-	if !strings.EqualFold(r.DeveloperGroup.Email.Domain(), org.Domain) {
-		errs = append(errs, fmt.Errorf("developer group %q is not in the organization domain %q", r.DeveloperGroup.Email, org.Domain))
+	if !strings.EqualFold(r.DeveloperGroup.email.Domain(), org.domain) {
+		errs = append(errs, fmt.Errorf("developer group %q is not in the organization domain %q", r.DeveloperGroup.email, org.domain))
 	}
-	for _, m := range r.DeveloperGroup.Members {
-		if !strings.EqualFold(m.Email.Domain(), org.Domain) {
-			errs = append(errs, fmt.Errorf("developer group member %q is not in the organization domain %q", m.Email, org.Domain))
+	for _, m := range r.DeveloperGroup.members {
+		if !strings.EqualFold(m.email.Domain(), org.domain) {
+			errs = append(errs, fmt.Errorf("developer group member %q is not in the organization domain %q", m.email, org.domain))
 		}
 	}
 	return errors.Join(errs...)
@@ -92,30 +93,69 @@ func (e Email) Domain() string {
 
 // Organization represents the Google Cloud organization this application is set up for.
 type Organization struct {
-	// ID is the numeric ID, without the "organizations/" prefix.
-	ID string
-	// Domain is the domain of the organization, such as "example.com".
-	Domain string
+	id     string
+	domain string
 }
+
+// NewOrganization returns an Organization, or an error if id is not a numeric ID
+// (without the "organizations/" prefix) or domain is empty.
+func NewOrganization(id, domain string) (Organization, error) {
+	if id == "" || strings.Trim(id, "0123456789") != "" {
+		return Organization{}, fmt.Errorf("invalid organization ID %q: must be numeric", id)
+	}
+	if domain == "" {
+		return Organization{}, errors.New("organization domain is empty")
+	}
+	return Organization{id: id, domain: domain}, nil
+}
+
+// ID returns the numeric ID, without the "organizations/" prefix.
+func (o Organization) ID() string { return o.id }
+
+// Domain returns the domain of the organization, such as "example.com".
+func (o Organization) Domain() string { return o.domain }
 
 // GoogleGroup represents a Google Group.
 type GoogleGroup struct {
-	Email   Email
-	Members []GoogleGroupMember
+	email   Email
+	members []GoogleGroupMember
 }
+
+// NewGoogleGroup returns a GoogleGroup with the given email and members.
+func NewGoogleGroup(email Email, members []GoogleGroupMember) GoogleGroup {
+	return GoogleGroup{email: email, members: slices.Clone(members)}
+}
+
+func (g GoogleGroup) Email() Email { return g.email }
+
+// Members returns a copy of the members of g.
+func (g GoogleGroup) Members() []GoogleGroupMember { return slices.Clone(g.members) }
 
 // GoogleGroupMember represents a Google Group member. Role is the strongest of
 // the roles the member holds.
 type GoogleGroupMember struct {
-	Email Email
-	Role  string
+	email Email
+	role  string
 }
 
+// NewGoogleGroupMember returns a GoogleGroupMember with the given email and role.
+func NewGoogleGroupMember(email Email, role string) GoogleGroupMember {
+	return GoogleGroupMember{email: email, role: role}
+}
+
+func (m GoogleGroupMember) Email() Email { return m.email }
+
+func (m GoogleGroupMember) Role() string { return m.role }
+
 // SameDomain reports whether the Email of all of g's members has the same domain
-// as g's Email. Domains are compared case-insensitively.
-func (g *GoogleGroup) SameDomain() bool {
-	for _, m := range g.Members {
-		if !strings.EqualFold(m.Email.Domain(), g.Email.Domain()) {
+// as g's Email, or false if g has no members. Domains are compared
+// case-insensitively.
+func (g GoogleGroup) SameDomain() bool {
+	if len(g.members) == 0 {
+		return false
+	}
+	for _, m := range g.members {
+		if !strings.EqualFold(m.email.Domain(), g.email.Domain()) {
 			return false
 		}
 	}
