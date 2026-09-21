@@ -3,12 +3,18 @@ package googlecloud
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	privilegedaccessmanager "cloud.google.com/go/privilegedaccessmanager/apiv1"
+	"cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
+
+// pamLocation is the location of the entitlements of a project. PAM keeps them
+// in "global".
+const pamLocation = "global"
 
 // ErrEntitlementNotFound is returned when the entitlement does not exist.
 var ErrEntitlementNotFound = errors.New("entitlement not found")
@@ -103,12 +109,16 @@ type PAMClient struct {
 // of the other clients, and so the tests can fake the API in the same way. The
 // module is not part of google.golang.org/api, which the other clients use.
 func NewPAMClient(ctx context.Context, opts ...option.ClientOption) (*PAMClient, error) {
-	panic("not implemented")
+	c, err := privilegedaccessmanager.NewRESTClient(ctx, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("new privilegedaccessmanager client: %w", err)
+	}
+	return &PAMClient{client: c}, nil
 }
 
 // Close releases what the client holds. The other clients have nothing to close.
 func (c *PAMClient) Close() error {
-	panic("not implemented")
+	return c.client.Close()
 }
 
 // GetEntitlement returns an entitlement of a project. It returns
@@ -130,5 +140,21 @@ func isHTTPStatus(err error, code int) bool {
 // SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1#Client.CheckOnboardingStatus
 // REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/projects.locations/checkOnboardingStatus
 func (c *PAMClient) CheckOnboarding(ctx context.Context, projectID string) (*OnboardingStatus, error) {
-	panic("not implemented")
+	resp, err := c.client.CheckOnboardingStatus(ctx, &privilegedaccessmanagerpb.CheckOnboardingStatusRequest{
+		Parent: fmt.Sprintf("projects/%s/locations/%s", projectID, pamLocation),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	status := &OnboardingStatus{
+		ServiceAccount: resp.GetServiceAccount(),
+		Findings:       make([]OnboardingFinding, 0, len(resp.GetFindings())),
+	}
+	for _, f := range resp.GetFindings() {
+		status.Findings = append(status.Findings, OnboardingFinding{
+			MissingPermissions: f.GetIamAccessDenied().GetMissingPermissions(),
+		})
+	}
+	return status, nil
 }

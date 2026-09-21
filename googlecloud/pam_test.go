@@ -22,7 +22,7 @@ import (
 // They fake the API with a server, like the tests of IAMClient. The client asks for
 // enums as numbers ($alt=json;enum-encoding=int), so the fake answers with them.
 //
-// Every case below is skipped until it is written.
+// The cases of GetEntitlement are skipped until they are written.
 
 // fakePAMServer fakes one method and path of the API and records the requests it
 // gets. Any other method or path fails the test: the API answers 404 to a path it
