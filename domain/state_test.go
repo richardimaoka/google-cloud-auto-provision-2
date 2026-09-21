@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestNewProjectCreationProgress(t *testing.T) {
 	tests := []struct {
@@ -196,4 +199,53 @@ func TestProjectCreationProgress_Retry(t *testing.T) {
 			t.Errorf("got %q/%q, want %q/%q", next.State(), next.Status(), StateAddingServiceAccountPermissions, StatusInProgress)
 		}
 	})
+}
+
+func TestProjectCreationProgress_Amend(t *testing.T) {
+	t.Run("errorのリクエストを修正するとrevisionを増やしてerrorのまま返す", func(t *testing.T) {
+		before := progress(t, StateAddingBreakGlassGroups, StatusError)
+		amendedRequest, err := NewProjectCreationRequest(
+			"Amended Project",
+			email(t, "amended-requester@example.com"),
+			NewGoogleGroup(email(t, "amended-developer-group@example.com"), nil),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		after, err := before.Amend(amendedRequest)
+		if err != nil {
+			t.Fatalf("Amend(): %v", err)
+		}
+		if after.ID() != before.ID() {
+			t.Errorf("ID() = %q, want %q", after.ID(), before.ID())
+		}
+		if after.Revision() != before.Revision()+1 {
+			t.Errorf("Revision() = %d, want %d", after.Revision(), before.Revision()+1)
+		}
+		if !reflect.DeepEqual(after.Request(), amendedRequest) {
+			t.Errorf("Request() = %#v, want %#v", after.Request(), amendedRequest)
+		}
+		if after.State() != before.State() || after.Status() != StatusError {
+			t.Errorf("State()/Status() = %q/%q, want %q/%q", after.State(), after.Status(), before.State(), StatusError)
+		}
+		if reflect.DeepEqual(before.Request(), amendedRequest) || before.Revision() != 1 || before.Status() != StatusError {
+			t.Error("Amend changed the receiver")
+		}
+	})
+
+	for _, test := range []struct {
+		name   string
+		state  State
+		status Status
+	}{
+		{name: "in_progressでは修正できない", state: StateCreatingProject, status: StatusInProgress},
+		{name: "完了済みでは修正できない", state: StateInitialSetupDone, status: StatusSuccess},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := progress(t, test.state, test.status).Amend(projectCreationRequest(t)); err == nil {
+				t.Error("Amend() = nil error, want an error")
+			}
+		})
+	}
 }
