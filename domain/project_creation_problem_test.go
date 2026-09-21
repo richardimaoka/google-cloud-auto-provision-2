@@ -23,9 +23,11 @@ func TestFindProjectCreationProblems(t *testing.T) {
 	tests := []struct {
 		name      string
 		requester string
-		developer []string // members of developer-group@example.com
-		ultimate  []string // members of the ultimate break-glass group
-		emergency []string // members of the emergency break-glass group
+		// The developer group's email; developer-group@example.com if empty.
+		groupEmail string
+		developer  []string // members of the developer group
+		ultimate   []string // members of the ultimate break-glass group
+		emergency  []string // members of the emergency break-glass group
 		// The codes of the problems, in the order they are reported.
 		want []ProjectCreationProblemCode
 	}{
@@ -39,6 +41,23 @@ func TestFindProjectCreationProblems(t *testing.T) {
 			requester: "requester@other.com",
 			developer: []string{"member-1@example.com", "member-2@example.com"},
 			want:      []ProjectCreationProblemCode{ProblemRequesterDomainMismatch},
+		},
+		{
+			name:      "ドメインの大文字小文字が違っても同じドメインとして扱う",
+			requester: "requester@EXAMPLE.com",
+			developer: []string{"member-1@EXAMPLE.COM", "member-2@Example.com"},
+		},
+		{
+			name:       "開発者グループのドメインが違う",
+			requester:  "requester@example.com",
+			groupEmail: "developer-group@other.com",
+			developer:  []string{"member-1@example.com", "member-2@example.com"},
+			want:       []ProjectCreationProblemCode{ProblemDeveloperGroupDomainMismatch},
+		},
+		{
+			name:      "メンバーが0人",
+			requester: "requester@example.com",
+			want:      []ProjectCreationProblemCode{ProblemDeveloperGroupTooFewMembers},
 		},
 		{
 			name:      "メンバーが2人未満",
@@ -83,7 +102,11 @@ func TestFindProjectCreationProblems(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			developerGroup := group(t, "developer-group@example.com", tt.developer...)
+			groupEmail := tt.groupEmail
+			if groupEmail == "" {
+				groupEmail = "developer-group@example.com"
+			}
+			developerGroup := group(t, groupEmail, tt.developer...)
 			request, err := NewProjectCreationRequest("Example Project", email(t, tt.requester), developerGroup)
 			if err != nil {
 				t.Fatal(err)

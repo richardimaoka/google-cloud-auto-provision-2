@@ -63,6 +63,9 @@ type Recommendation interface {
 	Description() string
 }
 
+// minDeveloperGroupMembers is the fewest members a developer group may have.
+const minDeveloperGroupMembers = 2
+
 // FindProjectCreationProblems returns every known problem that blocks creating
 // the project for request, or nil if there is none. It does no I/O: the caller
 // passes the developer group's members (in request), the organization and the
