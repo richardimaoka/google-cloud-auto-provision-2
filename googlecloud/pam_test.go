@@ -9,12 +9,14 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // Unit tests for PAMClient.
@@ -35,7 +37,8 @@ type fakePAMServer struct {
 }
 
 const (
-	fakeEntitlementPath = "/v1/projects/my-project/locations/global/entitlements/my-entitlement"
+	fakeEntitlementName = "projects/my-project/locations/global/entitlements/my-entitlement"
+	fakeEntitlementPath = "/v1/" + fakeEntitlementName
 	fakeOnboardingPath  = "/v1/projects/my-project/locations/global:checkOnboardingStatus"
 )
 
@@ -102,53 +105,229 @@ func newTestPAMClient(t *testing.T, endpoint string) *PAMClient {
 	return client
 }
 
+// accessControlEntry is an entry of principals, like the ones of eligible users and
+// approvers.
+func accessControlEntry(principals ...string) *privilegedaccessmanagerpb.AccessControlEntry {
+	return &privilegedaccessmanagerpb.AccessControlEntry{Principals: principals}
+}
+
+// getFakeEntitlement returns what GetEntitlement returns when the API answers with
+// e. It sets the name of e, so a case has only the fields it is about.
+func getFakeEntitlement(t *testing.T, e *privilegedaccessmanagerpb.Entitlement) *Entitlement {
+	t.Helper()
+
+	e.Name = fakeEntitlementName
+	srv := newFakePAMServer(t, http.MethodGet, fakeEntitlementPath, http.StatusOK, protoJSON(t, e))
+	client := newTestPAMClient(t, srv.URL)
+
+	got, err := client.GetEntitlement(context.Background(), "my-project", "my-entitlement")
+	if err != nil {
+		t.Fatalf("GetEntitlement() = %v, want nil error", err)
+	}
+	return got
+}
+
 func TestPAMClient_GetEntitlement(t *testing.T) {
 	t.Run("globalリージョンのエンタイトルメントを1回のGETで取得する", func(t *testing.T) {
-		t.Skip("not written yet")
+		srv := newFakePAMServer(t, http.MethodGet, fakeEntitlementPath, http.StatusOK, protoJSON(t, &privilegedaccessmanagerpb.Entitlement{
+			Name: fakeEntitlementName,
+		}))
+		client := newTestPAMClient(t, srv.URL)
+
+		got, err := client.GetEntitlement(context.Background(), "my-project", "my-entitlement")
+		if err != nil {
+			t.Fatalf("GetEntitlement() = %v, want nil error", err)
+		}
+		if got.Name != fakeEntitlementName {
+			t.Errorf("Name = %q, want %q", got.Name, fakeEntitlementName)
+		}
+		if want := []string{"GET " + fakeEntitlementPath}; !reflect.DeepEqual(srv.Requests(), want) {
+			t.Errorf("got requests %v, want %v", srv.Requests(), want)
+		}
 	})
 
 	t.Run("リソースとリソースタイプと、条件式付きのロールを返す", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
+			PrivilegedAccess: &privilegedaccessmanagerpb.PrivilegedAccess{
+				AccessType: &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_{
+					GcpIamAccess: &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess{
+						ResourceType: "cloudresourcemanager.googleapis.com/Project",
+						Resource:     "//cloudresourcemanager.googleapis.com/projects/my-project",
+						RoleBindings: []*privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_RoleBinding{
+							{Role: "roles/viewer"},
+							{Role: "roles/storage.admin", ConditionExpression: `resource.type == "storage.googleapis.com/Bucket"`},
+						},
+					},
+				},
+			},
+		})
+
+		if want := "//cloudresourcemanager.googleapis.com/projects/my-project"; got.Resource != want {
+			t.Errorf("Resource = %q, want %q", got.Resource, want)
+		}
+		if want := "cloudresourcemanager.googleapis.com/Project"; got.ResourceType != want {
+			t.Errorf("ResourceType = %q, want %q", got.ResourceType, want)
+		}
+		// The role without a condition has an empty ConditionExpression.
+		want := []EntitlementRole{
+			{Role: "roles/viewer"},
+			{Role: "roles/storage.admin", ConditionExpression: `resource.type == "storage.googleapis.com/Bucket"`},
+		}
+		if !reflect.DeepEqual(got.Roles, want) {
+			t.Errorf("Roles = %+v, want %+v", got.Roles, want)
+		}
 	})
 
 	t.Run("対象ユーザーは複数のエントリをまたいで1つのリストにまとめる", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
+			EligibleUsers: []*privilegedaccessmanagerpb.AccessControlEntry{
+				accessControlEntry("user:alice@example.com", "group:group-1@example.com"),
+				accessControlEntry("user:bob@example.com"),
+			},
+		})
+
+		want := []string{"user:alice@example.com", "group:group-1@example.com", "user:bob@example.com"}
+		if !reflect.DeepEqual(got.EligibleUsers, want) {
+			t.Errorf("EligibleUsers = %v, want %v", got.EligibleUsers, want)
+		}
 	})
 
 	t.Run("複数の承認ステップを、承認される順に、承認者と必要な承認数と一緒に返す", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
+			ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow{
+				ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow_ManualApprovals{
+					ManualApprovals: &privilegedaccessmanagerpb.ManualApprovals{
+						Steps: []*privilegedaccessmanagerpb.ManualApprovals_Step{
+							{
+								Approvers:       []*privilegedaccessmanagerpb.AccessControlEntry{accessControlEntry("user:carol@example.com")},
+								ApprovalsNeeded: 1,
+							},
+							{
+								Approvers: []*privilegedaccessmanagerpb.AccessControlEntry{
+									accessControlEntry("user:dave@example.com"),
+									accessControlEntry("group:group-2@example.com"),
+								},
+								ApprovalsNeeded: 2,
+							},
+						},
+					},
+				},
+			},
+		})
+
+		// The first step must be approved before the second one, so the order matters.
+		want := []ApprovalStep{
+			{Approvers: []string{"user:carol@example.com"}, ApprovalsNeeded: 1},
+			{Approvers: []string{"user:dave@example.com", "group:group-2@example.com"}, ApprovalsNeeded: 2},
+		}
+		if !reflect.DeepEqual(got.ApprovalSteps, want) {
+			t.Errorf("ApprovalSteps = %+v, want %+v", got.ApprovalSteps, want)
+		}
 	})
 
 	t.Run("承認者の理由の入力が必須ならRequireApproverJustificationはtrueになる", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
+			ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow{
+				ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow_ManualApprovals{
+					ManualApprovals: &privilegedaccessmanagerpb.ManualApprovals{RequireApproverJustification: true},
+				},
+			},
+		})
+
+		if !got.RequireApproverJustification {
+			t.Errorf("RequireApproverJustification = false, want true")
+		}
 	})
 
 	t.Run("承認が設定されていなければ承認ステップは空になる", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{})
+
+		if len(got.ApprovalSteps) != 0 {
+			t.Errorf("ApprovalSteps = %+v, want none", got.ApprovalSteps)
+		}
+		if got.RequireApproverJustification {
+			t.Errorf("RequireApproverJustification = true, want false without approvals")
+		}
 	})
 
 	t.Run("理由の入力が必須ならRequireJustificationはtrueになる", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
+			RequesterJustificationConfig: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig{
+				JustificationType: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_Unstructured_{
+					Unstructured: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_Unstructured{},
+				},
+			},
+		})
+
+		if !got.RequireJustification {
+			t.Errorf("RequireJustification = false, want true")
+		}
 	})
 
 	t.Run("理由の入力が任意ならRequireJustificationはfalseになる", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
+			RequesterJustificationConfig: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig{
+				JustificationType: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_NotMandatory_{
+					NotMandatory: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_NotMandatory{},
+				},
+			},
+		})
+
+		if got.RequireJustification {
+			t.Errorf("RequireJustification = true, want false")
+		}
 	})
 
 	t.Run("最大リクエスト時間を返す", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
+			MaxRequestDuration: durationpb.New(2 * time.Hour),
+		})
+
+		if want := 2 * time.Hour; got.MaxRequestDuration != want {
+			t.Errorf("MaxRequestDuration = %v, want %v", got.MaxRequestDuration, want)
+		}
 	})
 
 	t.Run("状態を名前の文字列で返す", func(t *testing.T) {
-		t.Skip("not written yet")
+		got := getFakeEntitlement(t, &privilegedaccessmanagerpb.Entitlement{
+			State: privilegedaccessmanagerpb.Entitlement_AVAILABLE,
+		})
+
+		if want := "AVAILABLE"; got.State != want {
+			t.Errorf("State = %q, want %q", got.State, want)
+		}
 	})
 
 	t.Run("404はErrEntitlementNotFoundを返す", func(t *testing.T) {
-		t.Skip("not written yet")
+		srv := newFakePAMServer(t, http.MethodGet, fakeEntitlementPath, http.StatusNotFound, `{"error":{"code":404,"message":"Entitlement not found","status":"NOT_FOUND"}}`)
+		client := newTestPAMClient(t, srv.URL)
+
+		_, err := client.GetEntitlement(context.Background(), "my-project", "my-entitlement")
+		if !errors.Is(err, ErrEntitlementNotFound) {
+			t.Fatalf("GetEntitlement() = %v, want ErrEntitlementNotFound", err)
+		}
+		// The error of the API stays in the chain, so the message of the API is not lost.
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) || gerr.Code != http.StatusNotFound {
+			t.Errorf("errors.As(googleapi.Error) = %v, want code 404", gerr)
+		}
 	})
 
 	t.Run("404以外のエラーはErrEntitlementNotFoundにしない", func(t *testing.T) {
-		t.Skip("not written yet")
+		srv := newFakePAMServer(t, http.MethodGet, fakeEntitlementPath, http.StatusForbidden, `{"error":{"code":403,"message":"Permission denied","status":"PERMISSION_DENIED"}}`)
+		client := newTestPAMClient(t, srv.URL)
+
+		got, err := client.GetEntitlement(context.Background(), "my-project", "my-entitlement")
+		if err == nil {
+			t.Fatalf("GetEntitlement() = %+v, want an error", got)
+		}
+		if errors.Is(err, ErrEntitlementNotFound) {
+			t.Errorf("GetEntitlement() = %v, want an error that is not ErrEntitlementNotFound", err)
+		}
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) || gerr.Code != http.StatusForbidden {
+			t.Errorf("errors.As(googleapi.Error) = %v, want code 403", gerr)
+		}
 	})
 }
 
