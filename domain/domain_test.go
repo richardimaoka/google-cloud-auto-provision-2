@@ -176,30 +176,3 @@ func TestGoogleGroup_membersAreCopied(t *testing.T) {
 		t.Errorf("the group followed a change to the returned slice: second member is %v", got.Email())
 	}
 }
-
-func TestGoogleGroup_SameDomain(t *testing.T) {
-	tests := []struct {
-		name    string
-		members []string
-		want    bool
-	}{
-		{name: "メンバーがいなければfalse", members: nil, want: false},
-		{name: "全員がグループと同じドメインならtrue", members: []string{"member-1@example.com", "member-2@example.com"}, want: true},
-		{name: "ドメインの大文字小文字が違ってもtrue", members: []string{"member-1@EXAMPLE.com"}, want: true},
-		{name: "1人でも別のドメインならfalse", members: []string{"member-1@example.com", "outside-member@other.com"}, want: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var members []GoogleGroupMember
-			for _, m := range tt.members {
-				members = append(members, NewGoogleGroupMember(email(t, m), "MEMBER"))
-			}
-			g := NewGoogleGroup(email(t, "developer-group@example.com"), members)
-
-			if got := g.SameDomain(); got != tt.want {
-				t.Errorf("SameDomain() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}

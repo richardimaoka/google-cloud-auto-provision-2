@@ -146,18 +146,3 @@ func NewGoogleGroupMember(email Email, role string) GoogleGroupMember {
 func (m GoogleGroupMember) Email() Email { return m.email }
 
 func (m GoogleGroupMember) Role() string { return m.role }
-
-// SameDomain reports whether the Email of all of g's members has the same domain
-// as g's Email, or false if g has no members. Domains are compared
-// case-insensitively.
-func (g GoogleGroup) SameDomain() bool {
-	if len(g.members) == 0 {
-		return false
-	}
-	for _, m := range g.members {
-		if !strings.EqualFold(m.email.Domain(), g.email.Domain()) {
-			return false
-		}
-	}
-	return true
-}
