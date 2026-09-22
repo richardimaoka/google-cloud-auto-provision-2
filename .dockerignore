@@ -1,0 +1,8 @@
+.git
+client_secret.json
+.env
+.env.integration
+data
+terraform
+webapp/testdata
+googlecloud/samples/scripts/out

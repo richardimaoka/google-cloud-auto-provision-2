@@ -1,19 +1,25 @@
 // Command webapp starts the project-request web application.
 //
 //	go run ./cmd/webapp [-addr host:port]
+//
+// If -addr is not given, the port defaults to $PORT (Cloud Run sets this),
+// falling back to 8080.
 package main
 
 import (
+	"cmp"
 	"flag"
 	"log"
 	"net"
 	"net/http"
+	"os"
 
 	"github.com/yusni/google-cloud-auto-provision-2/webapp"
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "address to listen on")
+	defaultAddr := ":" + cmp.Or(os.Getenv("PORT"), "8080")
+	addr := flag.String("addr", defaultAddr, "address to listen on")
 	flag.Parse()
 
 	log.Printf("listening on http://%s", displayAddr(*addr))

@@ -30,3 +30,9 @@ variable "automation_sa_id" {
   type        = string
   default     = "provision-test"
 }
+
+variable "region" {
+  description = "Region for the Artifact Registry repository and Cloud Run service."
+  type        = string
+  default     = "asia-northeast1"
+}
