@@ -64,6 +64,7 @@ resource "google_cloud_run_v2_service" "webapp" {
     service_account = google_service_account.automation.email
 
     containers {
+      # Placeholder until the real image is pushed and deployed (see README); ignore_changes below keeps it from being reverted.
       image = "us-docker.pkg.dev/cloudrun/container/hello"
     }
   }
