@@ -11,6 +11,7 @@ import (
 	"cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
+	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 // pamLocation is the location of the entitlements of a project. PAM keeps them
@@ -19,6 +20,10 @@ const pamLocation = "global"
 
 // ErrEntitlementNotFound is returned when the entitlement does not exist.
 var ErrEntitlementNotFound = errors.New("entitlement not found")
+
+// ErrEntitlementAlreadyExists is returned when CreateEntitlement is called with
+// an ID that is already used under the project.
+var ErrEntitlementAlreadyExists = errors.New("entitlement already exists")
 
 // Entitlement is an Entitlement of the PAM API, without the fields a project does not use.
 //
@@ -107,7 +112,8 @@ type OnboardingFinding struct {
 // grants: they are made by the users the entitlement is for, not by a
 // provisioning process.
 type PAMClient struct {
-	client *privilegedaccessmanager.Client
+	client       *privilegedaccessmanager.Client
+	pollInterval time.Duration
 }
 
 // NewPAMClient makes a PAMClient. It uses the REST client, because that is the one
@@ -118,7 +124,7 @@ func NewPAMClient(ctx context.Context, opts ...option.ClientOption) (*PAMClient,
 	if err != nil {
 		return nil, fmt.Errorf("new privilegedaccessmanager client: %w", err)
 	}
-	return &PAMClient{client: c}, nil
+	return &PAMClient{client: c, pollInterval: time.Second}, nil
 }
 
 // Close releases what the client holds. The other clients have nothing to close.
@@ -185,6 +191,93 @@ func (c *PAMClient) GetEntitlement(ctx context.Context, projectID, entitlementID
 		return nil, fmt.Errorf("get entitlement: %w", err)
 	}
 	return entitlementFromAPI(e), nil
+}
+
+// CreateEntitlement creates an entitlement in the global location of a project.
+// entitlementID is the caller-chosen last component of the entitlement name. It
+// returns ErrEntitlementAlreadyExists if that ID is already in use.
+//
+// SDK: https://pkg.go.dev/cloud.google.com/go/privilegedaccessmanager/apiv1#Client.CreateEntitlement
+// REST: https://docs.cloud.google.com/iam/docs/reference/pam/rest/v1/projects.locations.entitlements/create
+func (c *PAMClient) CreateEntitlement(ctx context.Context, projectID, entitlementID string, ent *Entitlement) (*Entitlement, error) {
+	apiEnt := &privilegedaccessmanagerpb.Entitlement{
+		EligibleUsers:      []*privilegedaccessmanagerpb.AccessControlEntry{{Principals: ent.EligibleUsers}},
+		MaxRequestDuration: durationpb.New(ent.MaxRequestDuration),
+	}
+	roles := make([]*privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_RoleBinding, 0, len(ent.Roles))
+	for _, role := range ent.Roles {
+		roles = append(roles, &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_RoleBinding{
+			Role: role.Role, ConditionExpression: role.ConditionExpression,
+		})
+	}
+	apiEnt.PrivilegedAccess = &privilegedaccessmanagerpb.PrivilegedAccess{
+		AccessType: &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_{
+			GcpIamAccess: &privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess{
+				ResourceType: ent.ResourceType,
+				Resource:     ent.Resource,
+				RoleBindings: roles,
+			},
+		},
+	}
+	if len(ent.ApprovalSteps) != 0 {
+		steps := make([]*privilegedaccessmanagerpb.ManualApprovals_Step, 0, len(ent.ApprovalSteps))
+		for _, step := range ent.ApprovalSteps {
+			steps = append(steps, &privilegedaccessmanagerpb.ManualApprovals_Step{
+				Approvers:       []*privilegedaccessmanagerpb.AccessControlEntry{{Principals: step.Approvers}},
+				ApprovalsNeeded: step.ApprovalsNeeded,
+			})
+		}
+		apiEnt.ApprovalWorkflow = &privilegedaccessmanagerpb.ApprovalWorkflow{
+			ApprovalWorkflow: &privilegedaccessmanagerpb.ApprovalWorkflow_ManualApprovals{
+				ManualApprovals: &privilegedaccessmanagerpb.ManualApprovals{
+					RequireApproverJustification: ent.RequireApproverJustification,
+					Steps:                        steps,
+				},
+			},
+		}
+	}
+	if ent.RequireJustification {
+		apiEnt.RequesterJustificationConfig = &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig{
+			JustificationType: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_Unstructured_{
+				Unstructured: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_Unstructured{},
+			},
+		}
+	} else {
+		apiEnt.RequesterJustificationConfig = &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig{
+			JustificationType: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_NotMandatory_{
+				NotMandatory: &privilegedaccessmanagerpb.Entitlement_RequesterJustificationConfig_NotMandatory{},
+			},
+		}
+	}
+
+	op, err := c.client.CreateEntitlement(ctx, &privilegedaccessmanagerpb.CreateEntitlementRequest{
+		Parent:        fmt.Sprintf("projects/%s/locations/%s", projectID, pamLocation),
+		EntitlementId: entitlementID,
+		Entitlement:   apiEnt,
+	})
+	if err != nil {
+		if isHTTPStatus(err, http.StatusConflict) {
+			return nil, fmt.Errorf("create entitlement: %w: %w", ErrEntitlementAlreadyExists, err)
+		}
+		return nil, fmt.Errorf("create entitlement: %w", err)
+	}
+
+	for {
+		created, err := op.Poll(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("create entitlement: %w", err)
+		}
+		if created != nil {
+			return entitlementFromAPI(created), nil
+		}
+		timer := time.NewTimer(c.pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("create entitlement: %w", ctx.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 // isHTTPStatus reports whether err is an API error with the HTTP status code. It
