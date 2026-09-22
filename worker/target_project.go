@@ -9,6 +9,20 @@ import (
 
 // RunProjectCreation runs the initial setup of an accepted project creation,
 // from the state recorded for id up to StateInitialSetupDone.
+//
+// Below, "問題があれば" covers two different kinds of failure, decided 2026-09-22:
+//   - A known domain.ProjectCreationProblem (e.g. domain.ProjectIDCollision): the
+//     requester can act on it, so its Recommendation is recorded alongside the
+//     error status and returned to them; no alert.
+//   - Any other error from Google Cloud (e.g. PERMISSION_DENIED: this worker's
+//     service account lacks a permission it needs): the requester can't fix it,
+//     so only the raw error is recorded (no recommendation), and it is also
+//     logged and alerted so an operator notices. ProjectCreationProgress still
+//     moves to status = "error" either way, so GetProjectCreationProgress does
+//     not show "in_progress" forever.
+//
+// Neither the BigQuery schema for recording a problem/recommendation nor the
+// alerting is implemented yet.
 func RunProjectCreation(ctx context.Context, id domain.ProjectCreationID) error {
 	// step:
 	//   記録済みのdomain.ProjectCreationRequestを、webappと同じdomainの判定関数で再判定。
