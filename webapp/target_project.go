@@ -70,10 +70,8 @@ func InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectC
 
 	// step:
 	//   callerCredentialsでcreateProjectAndGrantAutomationAccessを呼ぶ。
-	//   成功したら、作成したプロジェクトの情報とともに以下をBigQueryに記録:
-	//     - ProjectCreationProgress, State = "adding_iam_bindings", status = "in_progress"
-	//   (creating_projectは完了しているため進める。TODO: 作成したプロジェクトの実IDを
-	//   ProjectCreationProgressに記録する場所が現状のdomainモデルにない。要追加。)
+	//   成功したら、作成したプロジェクトのIDを渡してProjectCreationProgress.AdvancePastCreationを呼び、
+	//   その結果をBigQueryに記録(State = "adding_iam_bindings", status = "in_progress"になる)。
 
 	// step:
 	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。

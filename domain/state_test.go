@@ -6,41 +6,46 @@ import (
 )
 
 func TestNewProjectCreationProgress(t *testing.T) {
+	const projectID = "auto-provision-123456"
+
 	tests := []struct {
-		name     string
-		id       ProjectCreationID
-		revision int
-		state    State
-		status   Status
-		wantErr  bool
+		name      string
+		id        ProjectCreationID
+		revision  int
+		state     State
+		status    Status
+		projectID string
+		wantErr   bool
 	}{
 		{name: "-ingの状態はin_progressで作れる", id: "request-123", revision: 1, state: StateCreatingProject, status: StatusInProgress},
-		{name: "-ingの状態はerrorでも作れる", id: "request-123", revision: 1, state: StateAddingPAMEntitlements, status: StatusError},
-		{name: "initial_setup_doneはsuccessで作れる", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusSuccess},
+		{name: "-ingの状態はerrorでも作れる", id: "request-123", revision: 1, state: StateAddingPAMEntitlements, status: StatusError, projectID: projectID},
+		{name: "initial_setup_doneはsuccessで作れる", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusSuccess, projectID: projectID},
 		{name: "-ingの状態をsuccessにするとエラー", id: "request-123", revision: 1, state: StateCreatingProject, status: StatusSuccess, wantErr: true},
-		{name: "initial_setup_doneをin_progressにするとエラー", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusInProgress, wantErr: true},
-		{name: "initial_setup_doneをerrorにするとエラー", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusError, wantErr: true},
+		{name: "initial_setup_doneをin_progressにするとエラー", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusInProgress, projectID: projectID, wantErr: true},
+		{name: "initial_setup_doneをerrorにするとエラー", id: "request-123", revision: 1, state: StateInitialSetupDone, status: StatusError, projectID: projectID, wantErr: true},
 		{name: "知らない状態だとエラー", id: "request-123", revision: 1, state: State("created_project"), status: StatusInProgress, wantErr: true},
 		{name: "知らないステータスだとエラー", id: "request-123", revision: 1, state: StateCreatingProject, status: Status("failed"), wantErr: true},
 		{name: "状態が空だとエラー", id: "request-123", revision: 1, state: "", status: StatusInProgress, wantErr: true},
 		{name: "IDが空だとエラー", revision: 1, state: StateCreatingProject, status: StatusInProgress, wantErr: true},
 		{name: "revisionが0だとエラー", id: "request-123", state: StateCreatingProject, status: StatusInProgress, wantErr: true},
+		{name: "creating_projectなのにprojectIDがあるとエラー", id: "request-123", revision: 1, state: StateCreatingProject, status: StatusInProgress, projectID: projectID, wantErr: true},
+		{name: "creating_project以外でprojectIDが空だとエラー", id: "request-123", revision: 1, state: StateAddingIAMBindings, status: StatusInProgress, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := NewProjectCreationProgress(tt.id, tt.revision, projectCreationRequest(t), tt.state, tt.status)
+			p, err := NewProjectCreationProgress(tt.id, tt.revision, projectCreationRequest(t), tt.state, tt.status, tt.projectID)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("NewProjectCreationProgress(%q, %d, %q, %q) = nil error, want an error", tt.id, tt.revision, tt.state, tt.status)
+					t.Fatalf("NewProjectCreationProgress(%q, %d, %q, %q, %q) = nil error, want an error", tt.id, tt.revision, tt.state, tt.status, tt.projectID)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("NewProjectCreationProgress(%q, %d, %q, %q): %v", tt.id, tt.revision, tt.state, tt.status, err)
+				t.Fatalf("NewProjectCreationProgress(%q, %d, %q, %q, %q): %v", tt.id, tt.revision, tt.state, tt.status, tt.projectID, err)
 			}
-			if p.ID() != tt.id || p.Revision() != tt.revision || p.State() != tt.state || p.Status() != tt.status {
-				t.Errorf("got %q/%d/%q/%q, want %q/%d/%q/%q", p.ID(), p.Revision(), p.State(), p.Status(), tt.id, tt.revision, tt.state, tt.status)
+			if p.ID() != tt.id || p.Revision() != tt.revision || p.State() != tt.state || p.Status() != tt.status || p.ProjectID() != tt.projectID {
+				t.Errorf("got %q/%d/%q/%q/%q, want %q/%d/%q/%q/%q", p.ID(), p.Revision(), p.State(), p.Status(), p.ProjectID(), tt.id, tt.revision, tt.state, tt.status, tt.projectID)
 			}
 		})
 	}
@@ -59,10 +64,21 @@ func projectCreationRequest(t *testing.T) ProjectCreationRequest {
 	return request
 }
 
+// testProjectID is the placeholder project ID for progress helper calls whose
+// state is past StateCreatingProject, where a ProjectCreationProgress must
+// carry one.
+const testProjectID = "auto-provision-123456"
+
 // progress returns a ProjectCreationProgress, failing the test if it is not valid.
+// It fills in testProjectID unless state is StateCreatingProject, where a
+// ProjectCreationProgress must not have one yet.
 func progress(t *testing.T, state State, status Status) ProjectCreationProgress {
 	t.Helper()
-	p, err := NewProjectCreationProgress("request-123", 1, projectCreationRequest(t), state, status)
+	projectID := testProjectID
+	if state == StateCreatingProject {
+		projectID = ""
+	}
+	p, err := NewProjectCreationProgress("request-123", 1, projectCreationRequest(t), state, status, projectID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,18 +86,23 @@ func progress(t *testing.T, state State, status Status) ProjectCreationProgress 
 }
 
 func TestProjectCreationProgress_Advance(t *testing.T) {
-	// 正常系では、最初の状態から最後まで順番に進む。
+	// 正常系では、creating_projectをAdvancePastCreationで抜けた後、最後まで順番に進む。
 	want := []struct {
 		state  State
 		status Status
 	}{
-		{StateCreatingProject, StatusInProgress},
 		{StateAddingIAMBindings, StatusInProgress},
 		{StateAddingPAMEntitlements, StatusInProgress},
 		{StateInitialSetupDone, StatusSuccess},
 	}
 
-	p := progress(t, want[0].state, want[0].status)
+	p, err := progress(t, StateCreatingProject, StatusInProgress).AdvancePastCreation(testProjectID)
+	if err != nil {
+		t.Fatalf("AdvancePastCreation(%q): %v", testProjectID, err)
+	}
+	if p.State() != want[0].state || p.Status() != want[0].status || p.ProjectID() != testProjectID {
+		t.Fatalf("AdvancePastCreation(%q) = %q/%q/%q, want %q/%q/%q", testProjectID, p.State(), p.Status(), p.ProjectID(), want[0].state, want[0].status, testProjectID)
+	}
 	for i, w := range want[1:] {
 		next, err := p.Advance()
 		if err != nil {
@@ -99,6 +120,9 @@ func TestProjectCreationProgress_Advance(t *testing.T) {
 		if next.Request().DisplayName != p.Request().DisplayName {
 			t.Fatalf("step %d: DisplayName = %q, want %q", i+1, next.Request().DisplayName, p.Request().DisplayName)
 		}
+		if next.ProjectID() != p.ProjectID() {
+			t.Fatalf("step %d: ProjectID = %q, want %q", i+1, next.ProjectID(), p.ProjectID())
+		}
 		p = next
 	}
 	if !p.IsDone() {
@@ -106,12 +130,18 @@ func TestProjectCreationProgress_Advance(t *testing.T) {
 	}
 
 	t.Run("進んでも元のProjectCreationProgressは変わらない", func(t *testing.T) {
-		before := progress(t, StateCreatingProject, StatusInProgress)
+		before := progress(t, StateAddingIAMBindings, StatusInProgress)
 		if _, err := before.Advance(); err != nil {
 			t.Fatal(err)
 		}
-		if before.State() != StateCreatingProject || before.Status() != StatusInProgress {
+		if before.State() != StateAddingIAMBindings || before.Status() != StatusInProgress {
 			t.Errorf("Advance changed the receiver to %q/%q", before.State(), before.Status())
+		}
+	})
+
+	t.Run("creating_projectからはAdvanceで進めない", func(t *testing.T) {
+		if _, err := progress(t, StateCreatingProject, StatusInProgress).Advance(); err == nil {
+			t.Error("Advance() from creating_project = nil error, want an error")
 		}
 	})
 
@@ -124,6 +154,40 @@ func TestProjectCreationProgress_Advance(t *testing.T) {
 	t.Run("initial_setup_doneからは進めない", func(t *testing.T) {
 		if _, err := progress(t, StateInitialSetupDone, StatusSuccess).Advance(); err == nil {
 			t.Error("Advance() from the done state = nil error, want an error")
+		}
+	})
+}
+
+func TestProjectCreationProgress_AdvancePastCreation(t *testing.T) {
+	t.Run("creating_project/in_progressから、指定したprojectIDでadding_iam_bindingsに進む", func(t *testing.T) {
+		before := progress(t, StateCreatingProject, StatusInProgress)
+		after, err := before.AdvancePastCreation(testProjectID)
+		if err != nil {
+			t.Fatalf("AdvancePastCreation(%q): %v", testProjectID, err)
+		}
+		if after.State() != StateAddingIAMBindings || after.Status() != StatusInProgress || after.ProjectID() != testProjectID {
+			t.Errorf("got %q/%q/%q, want %q/%q/%q", after.State(), after.Status(), after.ProjectID(), StateAddingIAMBindings, StatusInProgress, testProjectID)
+		}
+		if before.State() != StateCreatingProject || before.ProjectID() != "" {
+			t.Errorf("AdvancePastCreation changed the receiver to %q/%q", before.State(), before.ProjectID())
+		}
+	})
+
+	t.Run("creating_project以外からは進めない", func(t *testing.T) {
+		if _, err := progress(t, StateAddingIAMBindings, StatusInProgress).AdvancePastCreation(testProjectID); err == nil {
+			t.Error("AdvancePastCreation() from adding_iam_bindings = nil error, want an error")
+		}
+	})
+
+	t.Run("errorからは進めない", func(t *testing.T) {
+		if _, err := progress(t, StateCreatingProject, StatusError).AdvancePastCreation(testProjectID); err == nil {
+			t.Error("AdvancePastCreation() from an error = nil error, want an error")
+		}
+	})
+
+	t.Run("projectIDが空だとエラー", func(t *testing.T) {
+		if _, err := progress(t, StateCreatingProject, StatusInProgress).AdvancePastCreation(""); err == nil {
+			t.Error("AdvancePastCreation(\"\") = nil error, want an error")
 		}
 	})
 }

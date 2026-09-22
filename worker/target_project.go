@@ -32,13 +32,10 @@ import (
 //     creates the project itself, with createProject, using its own
 //     credentials (ADC).
 //   - Initiated via InitiateProjectCreationAsUser: webapp already created the
-//     project and advanced past this state before handing off here, so this
-//     function skips createProject entirely.
-//
-// TODO: telling the two apart, and finding the already-created project in the
-// InitiateProjectCreationAsUser case, needs the real project ID somewhere in
-// domain.ProjectCreationProgress. Nothing carries it there yet — see the TODO
-// on webapp.InitiateProjectCreationAsUser.
+//     project and called domain.ProjectCreationProgress.AdvancePastCreation
+//     before handing off here, so this function skips createProject entirely
+//     and reads the project ID the recorded ProjectCreationProgress already
+//     carries (see ProjectCreationProgress.ProjectID).
 func RunProjectCreation(ctx context.Context, id domain.ProjectCreationID) error {
 	// step:
 	//   記録済みのdomain.ProjectCreationRequestを、webappと同じdomainの判定関数で再判定。
