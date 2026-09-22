@@ -133,3 +133,26 @@ func TestFindProjectCreationProblems(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectIDCollision(t *testing.T) {
+	// FindProjectCreationProblemsではなく、Google Cloudへのプロジェクト作成request送信後に
+	// worker側で組み立てられる問題なので、単体でテストする。
+	problem := NewProjectIDCollision("Example Project", 6)
+
+	if got, want := problem.Code(), ProblemProjectIDCollision; got != want {
+		t.Errorf("Code() = %q, want %q", got, want)
+	}
+	wantDescription := `no project ID generated from display name "Example Project" was free, tried 6 time(s)`
+	if got := problem.Description(); got != wantDescription {
+		t.Errorf("Description() = %q, want %q", got, wantDescription)
+	}
+
+	recommendation := problem.Recommendation()
+	if got, want := recommendation.Code(), RecommendationUseDifferentDisplayName; got != want {
+		t.Errorf("Recommendation().Code() = %q, want %q", got, want)
+	}
+	wantRecommendationDescription := `request again with a display name other than "Example Project"`
+	if got := recommendation.Description(); got != wantRecommendationDescription {
+		t.Errorf("Recommendation().Description() = %q, want %q", got, wantRecommendationDescription)
+	}
+}

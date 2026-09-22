@@ -13,6 +13,7 @@ import (
 //	DeveloperGroupDomainMismatch        -> UseDeveloperGroupInOrganizationDomain
 //	DeveloperGroupMemberDomainMismatch  -> RemoveDeveloperGroupMember
 //	RequesterDomainMismatch             -> UseRequesterInOrganizationDomain
+//	ProjectIDCollision                  -> UseDifferentDisplayName
 
 // ProjectCreationProblemCode identifies a known problem that blocks project
 // creation.
@@ -31,6 +32,8 @@ const (
 	ProblemDeveloperGroupMemberDomainMismatch ProjectCreationProblemCode = "developer_group_member_domain_mismatch"
 	// ProblemRequesterDomainMismatch: the requester is not in the organization domain.
 	ProblemRequesterDomainMismatch ProjectCreationProblemCode = "requester_domain_mismatch"
+	// ProblemProjectIDCollision: no project ID generated from the display name was free.
+	ProblemProjectIDCollision ProjectCreationProblemCode = "project_id_collision"
 )
 
 // RecommendationCode identifies the recommended action for a known problem.
@@ -45,6 +48,8 @@ const (
 	RecommendationUseDeveloperGroupInOrganizationDomain RecommendationCode = "use_developer_group_in_organization_domain"
 	// RecommendationUseRequesterInOrganizationDomain: request as an account in the organization domain.
 	RecommendationUseRequesterInOrganizationDomain RecommendationCode = "use_requester_in_organization_domain"
+	// RecommendationUseDifferentDisplayName: request again with a different display name.
+	RecommendationUseDifferentDisplayName RecommendationCode = "use_different_display_name"
 )
 
 // ProjectCreationProblem is a known problem that blocks project creation. Each
@@ -349,4 +354,54 @@ func (UseRequesterInOrganizationDomain) Code() RecommendationCode {
 
 func (r UseRequesterInOrganizationDomain) Description() string {
 	return fmt.Sprintf("request as an account in the organization domain %s", r.organizationDomain)
+}
+
+// Problems below are discovered only once a request is sent to Google Cloud,
+// unlike the problems above, which FindProjectCreationProblems finds from the
+// request alone.
+
+// ProjectIDCollision is a project creation whose display name produced no free
+// project ID: every ID Google Cloud generated from it was already taken.
+type ProjectIDCollision struct {
+	displayName string
+	attempts    int
+}
+
+// NewProjectIDCollision returns the problem for displayName, for which
+// attempts project IDs were tried and all were already taken.
+func NewProjectIDCollision(displayName string, attempts int) ProjectIDCollision {
+	return ProjectIDCollision{displayName: displayName, attempts: attempts}
+}
+
+func (ProjectIDCollision) Code() ProjectCreationProblemCode {
+	return ProblemProjectIDCollision
+}
+
+func (p ProjectIDCollision) Description() string {
+	return fmt.Sprintf("no project ID generated from display name %q was free, tried %d time(s)", p.displayName, p.attempts)
+}
+
+// Recommendation returns the action that resolves the problem.
+func (p ProjectIDCollision) Recommendation() UseDifferentDisplayName {
+	return NewUseDifferentDisplayName(p.displayName)
+}
+
+// UseDifferentDisplayName recommends requesting again with a display name
+// other than displayName.
+type UseDifferentDisplayName struct {
+	displayName string
+}
+
+// NewUseDifferentDisplayName returns the recommendation to request again with
+// a display name other than displayName.
+func NewUseDifferentDisplayName(displayName string) UseDifferentDisplayName {
+	return UseDifferentDisplayName{displayName: displayName}
+}
+
+func (UseDifferentDisplayName) Code() RecommendationCode {
+	return RecommendationUseDifferentDisplayName
+}
+
+func (r UseDifferentDisplayName) Description() string {
+	return fmt.Sprintf("request again with a display name other than %q", r.displayName)
 }
