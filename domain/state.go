@@ -18,20 +18,16 @@ import (
 type State string
 
 const (
-	StateInitiatingProjectCreation       State = "initiating_project_creation"
-	StateCreatingProject                 State = "creating_project"
-	StateAddingBreakGlassGroups          State = "adding_break_glass_groups"
-	StateAddingServiceAccountPermissions State = "adding_service_account_permissions"
-	StateAddingPAMEntitlements           State = "adding_pam_entitlements"
-	StateInitialSetupDone                State = "initial_setup_done"
+	StateCreatingProject       State = "creating_project"
+	StateAddingIAMBindings     State = "adding_iam_bindings"
+	StateAddingPAMEntitlements State = "adding_pam_entitlements"
+	StateInitialSetupDone      State = "initial_setup_done"
 )
 
 // states lists the states in the order the setup visits them.
 var states = []State{
-	StateInitiatingProjectCreation,
 	StateCreatingProject,
-	StateAddingBreakGlassGroups,
-	StateAddingServiceAccountPermissions,
+	StateAddingIAMBindings,
 	StateAddingPAMEntitlements,
 	StateInitialSetupDone,
 }
@@ -53,7 +49,7 @@ const (
 type ProjectCreationID string
 
 // ProjectCreationProgress is the persisted state of a project creation request.
-// It is immutable: Advance, Fail and Retry return the next
+// It is immutable: Advance, Fail, Retry and Amend return the next
 // ProjectCreationProgress.
 //
 // The valid combinations of State and Status are:
@@ -140,6 +136,22 @@ func (p ProjectCreationProgress) Retry() (ProjectCreationProgress, error) {
 		return ProjectCreationProgress{}, fmt.Errorf("cannot retry state %q with status %q: it is not an error", p.state, p.status)
 	}
 	return ProjectCreationProgress{revision: p.revision, id: p.id, request: p.request, state: p.state, status: StatusInProgress}, nil
+}
+
+// Amend returns the ProjectCreationProgress with request applied. It returns an
+// error unless p is StatusError. The amended progress retains its ID, State and
+// Status, and has the next Revision.
+func (p ProjectCreationProgress) Amend(request ProjectCreationRequest) (ProjectCreationProgress, error) {
+	if p.status != StatusError {
+		return ProjectCreationProgress{}, fmt.Errorf("cannot amend state %q with status %q: it is not an error", p.state, p.status)
+	}
+	return ProjectCreationProgress{
+		revision: p.revision + 1,
+		id:       p.id,
+		request:  cloneProjectCreationRequest(request),
+		state:    p.state,
+		status:   p.status,
+	}, nil
 }
 
 func cloneProjectCreationRequest(request ProjectCreationRequest) ProjectCreationRequest {
