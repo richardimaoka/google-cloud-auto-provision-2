@@ -1,6 +1,8 @@
-project_id      = "your-project-id"
-billing_account = "012345-6789AB-CDEF01"
+project_id        = "your-project-id"
+billing_account   = "012345-6789AB-CDEF01"
+iap_access_domain = "example.com"
 
 # project_name     = "Auto Provision"
 # parent           = "organizations/123456789"  # or "folders/123456789"; must match how the project was created
 # automation_sa_id = "provision-test"
+# region           = "asia-northeast1"

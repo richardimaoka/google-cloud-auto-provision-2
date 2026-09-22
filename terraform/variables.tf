@@ -36,3 +36,8 @@ variable "region" {
   type        = string
   default     = "asia-northeast1"
 }
+
+variable "iap_access_domain" {
+  description = "Google Workspace domain granted access to the webapp through Identity-Aware Proxy, e.g. \"example.com\"."
+  type        = string
+}

@@ -83,10 +83,15 @@ gcloud run deploy webapp --project $project_id --region $region \
 the repo and the service URL. `terraform apply` afterwards leaves the deployed
 image alone (`ignore_changes` on the container image in main.tf).
 
-The service currently requires IAM `roles/run.invoker` to reach it — nothing
-grants that yet, so it isn't publicly reachable until the webapp has its own
-sign-in and that's added deliberately (`google_cloud_run_v2_service_iam_member`
-with `member = "allUsers"`).
+Access is gated by Identity-Aware Proxy (`iap_enabled = true` on the
+service). The normal IAM invoker check stays on and is only satisfied by
+IAP's own service agent (`google_cloud_run_v2_service_iam_member.iap_invoker`)
+— that's what stops the raw `*.run.app` URL from being reachable directly.
+`var.iap_access_domain` (set in `terraform.tfvars`) is who IAP itself then
+lets sign in. IAP relies on the same OAuth consent screen ("Branding")
+configured by hand for the webapp's own OAuth client — see
+[../webapp/oauth-client.md](../webapp/oauth-client.md) — so set that up first
+if you haven't.
 
 ## Not managed by Terraform
 
