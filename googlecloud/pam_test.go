@@ -11,11 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"cloud.google.com/go/privilegedaccessmanager/apiv1/privilegedaccessmanagerpb"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -183,6 +186,134 @@ func getFakeEntitlement(t *testing.T, e *privilegedaccessmanagerpb.Entitlement) 
 		t.Fatalf("GetEntitlement() = %v, want nil error", err)
 	}
 	return got
+}
+
+const fakeCreateEntitlementPath = "/v1/projects/my-project/locations/global/entitlements"
+const fakeOperationName = "projects/my-project/locations/global/operations/op-1"
+const fakeOperationPath = "/v1/" + fakeOperationName
+
+type fakePAMResponse struct {
+	status int
+	body   string
+}
+
+// fakePAMCreateServer records a CreateEntitlement request and serves the create
+// operation followed by its scripted polls.
+type fakePAMCreateServer struct {
+	*httptest.Server
+	mu           sync.Mutex
+	requests     []string
+	query        []string
+	entitlements []*privilegedaccessmanagerpb.Entitlement
+	creates      []fakePAMResponse
+	polls        []fakePAMResponse
+}
+
+func newFakePAMCreateServer(t *testing.T, creates, polls []fakePAMResponse) *fakePAMCreateServer {
+	t.Helper()
+	s := &fakePAMCreateServer{creates: creates, polls: polls}
+	write := func(w http.ResponseWriter, responses []fakePAMResponse, n int) {
+		if n >= len(responses) {
+			t.Errorf("unexpected request %d, only %d scripted", n+1, len(responses))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		resp := responses[n]
+		w.WriteHeader(resp.status)
+		io.WriteString(w, resp.body)
+	}
+	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.requests = append(s.requests, r.Method+" "+r.URL.Path)
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == fakeCreateEntitlementPath:
+			var e privilegedaccessmanagerpb.Entitlement
+			if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(mustReadAll(t, r.Body), &e); err != nil {
+				t.Errorf("decode create request: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			s.entitlements = append(s.entitlements, &e)
+			s.query = append(s.query, r.URL.Query().Get("entitlementId"))
+			write(w, s.creates, len(s.entitlements)-1)
+		case r.Method == http.MethodGet && r.URL.Path == fakeOperationPath:
+			poll := 0
+			for _, request := range s.requests {
+				if request == http.MethodGet+" "+fakeOperationPath {
+					poll++
+				}
+			}
+			write(w, s.polls, poll-1)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+// equalProtos compares messages with proto.Equal, because reflect.DeepEqual also
+// compares the internal state of the messages.
+func equalProtos[T proto.Message](got, want []T) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if !proto.Equal(got[i], want[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func mustReadAll(t *testing.T, r io.Reader) []byte {
+	t.Helper()
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read request: %v", err)
+	}
+	return b
+}
+
+func (s *fakePAMCreateServer) entitlement(t *testing.T) *privilegedaccessmanagerpb.Entitlement {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.entitlements) != 1 {
+		t.Fatalf("create requests = %d, want 1", len(s.entitlements))
+	}
+	return s.entitlements[0]
+}
+
+func operationJSON(t *testing.T, done bool, entitlement *privilegedaccessmanagerpb.Entitlement, operationError *statuspb.Status) string {
+	t.Helper()
+	op := &longrunningpb.Operation{Name: fakeOperationName, Done: done}
+	if entitlement != nil {
+		response, err := anypb.New(entitlement)
+		if err != nil {
+			t.Fatal(err)
+		}
+		op.Result = &longrunningpb.Operation_Response{Response: response}
+	}
+	if operationError != nil {
+		op.Result = &longrunningpb.Operation_Error{Error: operationError}
+	}
+	return protoJSON(t, op)
+}
+
+func successfulCreate(t *testing.T, input *Entitlement) (*Entitlement, *fakePAMCreateServer) {
+	t.Helper()
+	response := &privilegedaccessmanagerpb.Entitlement{Name: fakeEntitlementName}
+	srv := newFakePAMCreateServer(t, []fakePAMResponse{{status: http.StatusOK, body: operationJSON(t, true, response, nil)}}, nil)
+	client := newTestPAMClient(t, srv.URL)
+	client.pollInterval = 0
+	got, err := client.CreateEntitlement(context.Background(), "my-project", "my-entitlement", input)
+	if err != nil {
+		t.Fatalf("CreateEntitlement() = %v, want nil error", err)
+	}
+	return got, srv
 }
 
 func TestPAMClient_GetEntitlement(t *testing.T) {
@@ -358,67 +489,158 @@ func TestPAMClient_GetEntitlement(t *testing.T) {
 
 func TestPAMClient_CreateEntitlement(t *testing.T) {
 	t.Run("globalリージョンにエンタイトルメントIDを指定してPOSTする", func(t *testing.T) {
-		t.Skip("not written yet")
+		got, srv := successfulCreate(t, &Entitlement{})
+		if got.Name != fakeEntitlementName {
+			t.Errorf("Name = %q, want %q", got.Name, fakeEntitlementName)
+		}
+		if want := []string{"POST " + fakeCreateEntitlementPath}; !reflect.DeepEqual(srv.requests, want) {
+			t.Errorf("requests = %v, want %v", srv.requests, want)
+		}
+		if want := []string{"my-entitlement"}; !reflect.DeepEqual(srv.query, want) {
+			t.Errorf("entitlementId = %v, want %v", srv.query, want)
+		}
 	})
 
 	t.Run("リソースとリソースタイプと、条件式付きのロールをリクエストに載せる", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{ResourceType: "cloudresourcemanager.googleapis.com/Project", Resource: "//cloudresourcemanager.googleapis.com/projects/my-project", Roles: []EntitlementRole{{Role: "roles/viewer"}, {Role: "roles/storage.admin", ConditionExpression: `resource.type == "storage.googleapis.com/Bucket"`}}})
+		got := srv.entitlement(t).GetPrivilegedAccess().GetGcpIamAccess()
+		if got.GetResource() != "//cloudresourcemanager.googleapis.com/projects/my-project" || got.GetResourceType() != "cloudresourcemanager.googleapis.com/Project" {
+			t.Errorf("GcpIamAccess = %+v, want resource and type", got)
+		}
+		want := []*privilegedaccessmanagerpb.PrivilegedAccess_GcpIamAccess_RoleBinding{roleBinding("roles/viewer", ""), roleBinding("roles/storage.admin", `resource.type == "storage.googleapis.com/Bucket"`)}
+		if !equalProtos(got.GetRoleBindings(), want) {
+			t.Errorf("RoleBindings = %+v, want %+v", got.GetRoleBindings(), want)
+		}
 	})
 
 	t.Run("対象ユーザーを1つのエントリにまとめてリクエストに載せる", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{EligibleUsers: []string{"user:alice@example.com", "group:group-1@example.com", "user:bob@example.com"}})
+		want := []*privilegedaccessmanagerpb.AccessControlEntry{accessControlEntry("user:alice@example.com", "group:group-1@example.com", "user:bob@example.com")}
+		if got := srv.entitlement(t).GetEligibleUsers(); !equalProtos(got, want) {
+			t.Errorf("EligibleUsers = %+v, want %+v", got, want)
+		}
 	})
 
 	t.Run("複数の承認ステップを、承認される順に、承認者と必要な承認数と一緒にリクエストに載せる", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{ApprovalSteps: []ApprovalStep{{Approvers: []string{"user:carol@example.com"}, ApprovalsNeeded: 1}, {Approvers: []string{"user:dave@example.com", "group:group-2@example.com"}, ApprovalsNeeded: 2}}})
+		got := srv.entitlement(t).GetApprovalWorkflow().GetManualApprovals().GetSteps()
+		want := []*privilegedaccessmanagerpb.ManualApprovals_Step{approvalStep(1, accessControlEntry("user:carol@example.com")), approvalStep(2, accessControlEntry("user:dave@example.com", "group:group-2@example.com"))}
+		if !equalProtos(got, want) {
+			t.Errorf("Steps = %+v, want %+v", got, want)
+		}
 	})
 
 	t.Run("承認者の理由の入力が必須ならリクエストにそう載せる", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{ApprovalSteps: []ApprovalStep{{}}, RequireApproverJustification: true})
+		if !srv.entitlement(t).GetApprovalWorkflow().GetManualApprovals().GetRequireApproverJustification() {
+			t.Error("RequireApproverJustification = false, want true")
+		}
 	})
 
 	t.Run("承認ステップがなければ承認の設定を載せない", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{RequireApproverJustification: true})
+		if got := srv.entitlement(t).GetApprovalWorkflow(); got != nil {
+			t.Errorf("ApprovalWorkflow = %+v, want nil", got)
+		}
 	})
 
 	t.Run("理由の入力が必須ならリクエストにそう載せる", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{RequireJustification: true})
+		if srv.entitlement(t).GetRequesterJustificationConfig().GetUnstructured() == nil {
+			t.Error("RequesterJustificationConfig = not unstructured, want unstructured")
+		}
 	})
 
 	t.Run("理由の入力が任意ならリクエストにそう載せる", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{})
+		if srv.entitlement(t).GetRequesterJustificationConfig().GetNotMandatory() == nil {
+			t.Error("RequesterJustificationConfig = not notMandatory, want notMandatory")
+		}
 	})
 
 	t.Run("最大リクエスト時間をリクエストに載せる", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{MaxRequestDuration: 2 * time.Hour})
+		want := 2 * time.Hour
+		if got := srv.entitlement(t).GetMaxRequestDuration().AsDuration(); got != want {
+			t.Errorf("MaxRequestDuration = %v, want %v", got, want)
+		}
 	})
 
 	t.Run("オペレーションが最初のレスポンスで完了している", func(t *testing.T) {
-		t.Skip("not written yet")
+		_, srv := successfulCreate(t, &Entitlement{})
+		if len(srv.requests) != 1 {
+			t.Errorf("requests = %v, want no poll", srv.requests)
+		}
 	})
 
 	t.Run("オペレーションが数回のポーリング後に完了する", func(t *testing.T) {
-		t.Skip("not written yet")
+		running := fakePAMResponse{status: http.StatusOK, body: operationJSON(t, false, nil, nil)}
+		done := fakePAMResponse{status: http.StatusOK, body: operationJSON(t, true, &privilegedaccessmanagerpb.Entitlement{Name: fakeEntitlementName}, nil)}
+		srv := newFakePAMCreateServer(t, []fakePAMResponse{running}, []fakePAMResponse{running, done})
+		client := newTestPAMClient(t, srv.URL)
+		client.pollInterval = 0
+		if _, err := client.CreateEntitlement(context.Background(), "my-project", "my-entitlement", &Entitlement{}); err != nil {
+			t.Fatalf("CreateEntitlement() = %v, want nil error", err)
+		}
+		if want := []string{"POST " + fakeCreateEntitlementPath, "GET " + fakeOperationPath, "GET " + fakeOperationPath}; !reflect.DeepEqual(srv.requests, want) {
+			t.Errorf("requests = %v, want %v", srv.requests, want)
+		}
 	})
 
 	t.Run("完了したオペレーションのレスポンスがEntitlementに変換される", func(t *testing.T) {
-		t.Skip("not written yet")
+		response := &privilegedaccessmanagerpb.Entitlement{Name: fakeEntitlementName, State: privilegedaccessmanagerpb.Entitlement_AVAILABLE, EligibleUsers: []*privilegedaccessmanagerpb.AccessControlEntry{accessControlEntry("user:alice@example.com")}}
+		srv := newFakePAMCreateServer(t, []fakePAMResponse{{status: http.StatusOK, body: operationJSON(t, true, response, nil)}}, nil)
+		client := newTestPAMClient(t, srv.URL)
+		got, err := client.CreateEntitlement(context.Background(), "my-project", "my-entitlement", &Entitlement{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != "AVAILABLE" || !reflect.DeepEqual(got.EligibleUsers, []string{"user:alice@example.com"}) {
+			t.Errorf("Entitlement = %+v, want converted response", got)
+		}
 	})
 
 	t.Run("同じIDのエンタイトルメントが既にあればErrEntitlementAlreadyExistsを返す", func(t *testing.T) {
-		t.Skip("not written yet")
+		srv := newFakePAMCreateServer(t, []fakePAMResponse{{status: http.StatusConflict, body: `{"error":{"code":409,"message":"already exists","status":"ALREADY_EXISTS"}}`}}, nil)
+		client := newTestPAMClient(t, srv.URL)
+		_, err := client.CreateEntitlement(context.Background(), "my-project", "my-entitlement", &Entitlement{})
+		if !errors.Is(err, ErrEntitlementAlreadyExists) {
+			t.Errorf("error = %v, want ErrEntitlementAlreadyExists", err)
+		}
+		var gerr *googleapi.Error
+		if !errors.As(err, &gerr) || gerr.Code != http.StatusConflict {
+			t.Errorf("error = %v, want wrapped 409", err)
+		}
 	})
 
 	t.Run("作成リクエストが409以外で拒否されてもErrEntitlementAlreadyExistsにしない", func(t *testing.T) {
-		t.Skip("not written yet")
+		srv := newFakePAMCreateServer(t, []fakePAMResponse{{status: http.StatusForbidden, body: `{"error":{"code":403,"message":"denied","status":"PERMISSION_DENIED"}}`}}, nil)
+		client := newTestPAMClient(t, srv.URL)
+		_, err := client.CreateEntitlement(context.Background(), "my-project", "my-entitlement", &Entitlement{})
+		if err == nil || errors.Is(err, ErrEntitlementAlreadyExists) {
+			t.Errorf("error = %v, want non-conflict error", err)
+		}
 	})
 
 	t.Run("オペレーションがエラーで完了する", func(t *testing.T) {
-		t.Skip("not written yet")
+		// err != nilだけ確認している。オペレーションのエラー内容(code 8, "quota
+		// exceeded")がerrに含まれることまでは見ていないので、別の理由でerrが
+		// nilでなくなっても、このテストは気づけない。
+		srv := newFakePAMCreateServer(t, []fakePAMResponse{{status: http.StatusOK, body: operationJSON(t, true, nil, &statuspb.Status{Code: 8, Message: "quota exceeded"})}}, nil)
+		client := newTestPAMClient(t, srv.URL)
+		if got, err := client.CreateEntitlement(context.Background(), "my-project", "my-entitlement", &Entitlement{}); err == nil || got != nil {
+			t.Errorf("CreateEntitlement() = %+v, %v, want error", got, err)
+		}
 	})
 
 	t.Run("ポーリング中に500", func(t *testing.T) {
-		t.Skip("not written yet")
+		running := fakePAMResponse{status: http.StatusOK, body: operationJSON(t, false, nil, nil)}
+		srv := newFakePAMCreateServer(t, []fakePAMResponse{running}, []fakePAMResponse{{status: http.StatusInternalServerError, body: `{"error":{"code":500,"message":"server error","status":"INTERNAL"}}`}})
+		client := newTestPAMClient(t, srv.URL)
+		client.pollInterval = 0
+		if got, err := client.CreateEntitlement(context.Background(), "my-project", "my-entitlement", &Entitlement{}); err == nil || got != nil {
+			t.Errorf("CreateEntitlement() = %+v, %v, want error", got, err)
+		}
 	})
 }
 
