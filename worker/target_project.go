@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
+	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
 )
 
 // RunProjectCreation runs the initial setup of an accepted project creation,
@@ -23,6 +24,21 @@ import (
 //
 // Neither the BigQuery schema for recording a problem/recommendation nor the
 // alerting is implemented yet.
+//
+// State = "creating_project" covers two different situations, decided
+// 2026-09-23 (see webapp.InitiateProjectCreationAsUser and
+// webapp.InitiateProjectCreationAsServiceAccount):
+//   - Initiated via InitiateProjectCreationAsServiceAccount: this function
+//     creates the project itself, with createProject, using its own
+//     credentials (ADC).
+//   - Initiated via InitiateProjectCreationAsUser: webapp already created the
+//     project and advanced past this state before handing off here, so this
+//     function skips createProject entirely.
+//
+// TODO: telling the two apart, and finding the already-created project in the
+// InitiateProjectCreationAsUser case, needs the real project ID somewhere in
+// domain.ProjectCreationProgress. Nothing carries it there yet — see the TODO
+// on webapp.InitiateProjectCreationAsUser.
 func RunProjectCreation(ctx context.Context, id domain.ProjectCreationID) error {
 	// step:
 	//   記録済みのdomain.ProjectCreationRequestを、webappと同じdomainの判定関数で再判定。
@@ -32,7 +48,10 @@ func RunProjectCreation(ctx context.Context, id domain.ProjectCreationID) error 
 	//     - 問題と推奨解決法
 
 	// step:
-	//   プロジェクト作成requestをGoogle Cloudに送信。
+	//   取得したProjectCreationProgressのStateがまだ"creating_project"ならcreateProjectを呼ぶ
+	//   (InitiateProjectCreationAsServiceAccountで開始した場合。
+	//   InitiateProjectCreationAsUserで開始した場合はここに来た時点で
+	//   既にこのStateを通過済みのはずなので呼ばない)。
 	//   問題があれば以下をBigQueryに記録し、エラーを返却
 	//     - ProjectCreationProgress, State = "creating_project", status = "error"
 	//     - 問題と推奨解決法
@@ -56,4 +75,21 @@ func RunProjectCreation(ctx context.Context, id domain.ProjectCreationID) error 
 	//     - ProjectCreationProgress, State = "initial_setup_done", status = "success"
 
 	return nil
+}
+
+// createProject creates the Google Cloud project for request, using this
+// worker's own credentials (ADC, the automation service account). It is only
+// called when initiated via webapp.InitiateProjectCreationAsServiceAccount —
+// for webapp.InitiateProjectCreationAsUser, webapp already created the
+// project under the caller's own OAuth-delegated credentials, so
+// RunProjectCreation skips this call entirely rather than calling it with
+// different credentials.
+func createProject(ctx context.Context, request domain.ProjectCreationRequest) (*googlecloud.Project, error) {
+	// step:
+	//   ADC(このワーカーの自動化サービスアカウント)でgooglecloud.NewProjectsClientを構成し、
+	//   request.DisplayNameでプロジェクトを作成(ProjectsClient.Create)。
+	//   失敗時は、問題と推奨解決法とともにエラーを返却(BigQueryにはこの関数からは記録しない。
+	//   呼び出し元のRunProjectCreationがまとめて記録する)。
+
+	return nil, nil
 }

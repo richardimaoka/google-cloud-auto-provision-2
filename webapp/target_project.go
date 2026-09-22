@@ -6,6 +6,8 @@ import (
 	"context"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
+	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
+	"google.golang.org/api/option"
 )
 
 // InitiateProjectCreationRequest is the input for initiating target project
@@ -23,11 +25,14 @@ type InitiateProjectCreationResponse struct {
 	ID domain.ProjectCreationID
 }
 
-// InitiateProjectCreation accepts a project creation request and returns once
-// it is recorded. The rest of the initial setup runs in a Cloud Run job (see
-// package worker), and its progress is read with GetProjectCreationProgress.
-// The returned error means the request was not accepted.
-func InitiateProjectCreation(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
+// recordProjectCreationRequest validates request, then records it in
+// BigQuery as ProjectCreationProgress at StateCreatingProject — or, if
+// request.ID is already recorded, returns the existing ID unchanged instead
+// of starting a second project creation. Both InitiateProjectCreationAsUser
+// and InitiateProjectCreationAsServiceAccount call this first; it has no
+// principal-specific behavior, since nothing here needs the requester's own
+// credentials.
+func recordProjectCreationRequest(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
 	// step:
 	//   引数からdomain.ProjectCreationRequestを構成し、バリデーション。
 	//   構成と判定に必要な情報(DeveloperGroupのメンバー、break-glassグループのメンバー等)はGoogle Cloudから取得。
@@ -41,10 +46,85 @@ func InitiateProjectCreation(ctx context.Context, request InitiateProjectCreatio
 	//   request.IDが記録済みなら重複申請なので、記録も後続処理の起動もせず、記録済みのIDで成功を返却。
 	//   ただし記録済みのrequestと中身が違う場合はエラーを返却。
 
+	return InitiateProjectCreationResponse{ID: request.ID}, nil
+}
+
+// InitiateProjectCreationAsUser accepts a project creation request under the
+// caller's own Google account and returns once it is recorded. It creates
+// the project and grants the automation service account access to it under
+// callerCredentials — the caller's own OAuth-delegated credentials, from a
+// server-side OAuth session (not yet implemented, see
+// webapp/oauth-client.md) — before handing the rest of the initial setup to
+// a Cloud Run job (see package worker), whose progress is read with
+// GetProjectCreationProgress. The returned error means the request was not
+// accepted.
+//
+// Use this while the automation service account has no organization-level
+// project creator permission. Once it's granted (or deliberately withheld
+// for good), delete whichever of this function and
+// InitiateProjectCreationAsServiceAccount lost out, and fold
+// recordProjectCreationRequest into the survivor.
+func InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, callerCredentials ...option.ClientOption) (InitiateProjectCreationResponse, error) {
+	// step:
+	//   recordProjectCreationRequestを呼ぶ。エラーならそのまま返却。
+
+	// step:
+	//   callerCredentialsでcreateProjectAndGrantAutomationAccessを呼ぶ。
+	//   成功したら、作成したプロジェクトの情報とともに以下をBigQueryに記録:
+	//     - ProjectCreationProgress, State = "adding_iam_bindings", status = "in_progress"
+	//   (creating_projectは完了しているため進める。TODO: 作成したプロジェクトの実IDを
+	//   ProjectCreationProgressに記録する場所が現状のdomainモデルにない。要追加。)
+
 	// step:
 	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。
 
 	return InitiateProjectCreationResponse{ID: request.ID}, nil
+}
+
+// InitiateProjectCreationAsServiceAccount accepts a project creation request
+// and returns once it is recorded, without creating anything itself: the
+// Cloud Run job (see package worker) creates the project using the
+// automation service account's own credentials (ADC), and does the rest of
+// the initial setup too. Progress is read with GetProjectCreationProgress.
+// The returned error means the request was not accepted.
+//
+// Use this once the automation service account has organization-level
+// project creator permission; see InitiateProjectCreationAsUser for now.
+func InitiateProjectCreationAsServiceAccount(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
+	// step:
+	//   recordProjectCreationRequestを呼ぶ。エラーならそのまま返却。
+
+	// step:
+	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。
+	//   (workerが自身でプロジェクトを作成するため、ここでの追加処理はない。)
+
+	return InitiateProjectCreationResponse{ID: request.ID}, nil
+}
+
+// createProjectAndGrantAutomationAccess creates the Google Cloud project for
+// request and grants the automation service account access to it, both under
+// callerCredentials — the caller's own OAuth-delegated credentials. It is
+// only called from InitiateProjectCreationAsUser: worker.RunProjectCreation
+// creates the project itself, under the automation service account's own
+// credentials, when initiated via InitiateProjectCreationAsServiceAccount.
+//
+// The access granted here only needs to cover what worker.RunProjectCreation
+// does next (adding IAM bindings, setting up the PAM entitlement) — not
+// lasting privileges, since Phase 3 onward hands ongoing operation to the
+// service account's Workload Identity (see spec.md §2.3).
+func createProjectAndGrantAutomationAccess(ctx context.Context, request domain.ProjectCreationRequest, callerCredentials ...option.ClientOption) (*googlecloud.Project, error) {
+	// step:
+	//   callerCredentialsでgooglecloud.NewProjectsClientを構成し、
+	//   request.DisplayNameでプロジェクトを作成(ProjectsClient.Create)。
+	//   失敗時は、問題と推奨解決法とともにエラーを返却(BigQueryにはこの関数からは記録しない。
+	//   呼び出し元のInitiateProjectCreationAsUserがまとめて記録する)。
+
+	// step:
+	//   同じcallerCredentialsでgooglecloud.NewIAMClientを構成し、作成したプロジェクトに対して
+	//   AUTOMATION_SA_EMAILへ必要なロールのIAM bindingを付与(IAMClient.AddBinding)。
+	//   失敗時は、問題と推奨解決法とともにエラーを返却。
+
+	return nil, nil
 }
 
 // GetProjectCreationProgressResponse is the result of looking up a project
