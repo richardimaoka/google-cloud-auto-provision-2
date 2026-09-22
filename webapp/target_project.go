@@ -11,11 +11,20 @@ import (
 )
 
 // InitiateProjectCreationRequest is the input for initiating target project
-// creation.
+// creation. DisplayName, Requester and DeveloperGroup are as submitted on the
+// form (see webapp/server.go): raw, unvalidated strings, not yet the domain
+// types they become inside recordProjectCreationRequest. DeveloperGroup's
+// members aren't included here; they're looked up from Google Cloud.
 type InitiateProjectCreationRequest struct {
 	// ID is issued by the caller and doubles as an idempotency key: retrying
 	// with the same ID never starts a second project creation.
 	ID domain.ProjectCreationID
+	// DisplayName is the new project's requested display name.
+	DisplayName string
+	// Requester is the requester's email address.
+	Requester string
+	// DeveloperGroup is the developer group's email address.
+	DeveloperGroup string
 }
 
 // InitiateProjectCreationResponse is the result of initiating target project
@@ -34,8 +43,9 @@ type InitiateProjectCreationResponse struct {
 // credentials.
 func recordProjectCreationRequest(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
 	// step:
-	//   引数からdomain.ProjectCreationRequestを構成し、バリデーション。
-	//   構成と判定に必要な情報(DeveloperGroupのメンバー、break-glassグループのメンバー等)はGoogle Cloudから取得。
+	//   request.DisplayName・Requester・DeveloperGroupからdomain.ProjectCreationRequestを構成し、
+	//   バリデーション(domain.NewEmail, domain.NewGoogleGroup, domain.NewProjectCreationRequest)。
+	//   判定に必要な情報(DeveloperGroupのメンバー、break-glassグループのメンバー等)はGoogle Cloudから取得。
 	//   判定はdomainの判定関数(I/Oなし、取得した情報を引数で受け取る)で行う。workerも同じ関数で再判定する。
 	//   問題があれば、BigQueryには記録せず、問題と推奨解決法とともにエラーを返却。
 	//   (ProjectCreationProgressはdomain.ProjectCreationRequestを必須で持つため、構成前には記録できない)
