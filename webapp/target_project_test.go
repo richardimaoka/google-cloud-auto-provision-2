@@ -23,7 +23,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 // createProjectAndGrantAutomationAccess is still a stub, so every case is
 // skipped until it has a real body to test.
 func TestCreateProjectAndGrantAutomationAccess(t *testing.T) {
-	t.Run("callerCredentialsでプロジェクトを作成し、自動化SAへ権限を付与する", func(t *testing.T) {
+	t.Run("callerCredentialsでプロジェクトを作成し、自動化Service Accountへ権限を付与する", func(t *testing.T) {
 		t.Skip("createProjectAndGrantAutomationAccess is not implemented yet")
 	})
 	t.Run("プロジェクト作成が失敗したら権限付与はせずエラーを返す", func(t *testing.T) {
