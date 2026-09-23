@@ -35,7 +35,8 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "not-an-email",
 			DeveloperGroup: "developer-group@example.com",
 		}
-		_, err := InitiateProjectCreationAsUser(context.Background(), request,
+		svc := NewProjectCreationService()
+		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request,
 			option.WithEndpoint(srv.URL), option.WithoutAuthentication())
 		if err == nil {
 			t.Error("InitiateProjectCreationAsUser(invalid requester email) = nil error, want an error")
@@ -62,7 +63,8 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "requester@example.com",
 			DeveloperGroup: "developer-group@example.com",
 		}
-		_, err := InitiateProjectCreationAsUser(context.Background(), request,
+		svc := NewProjectCreationService()
+		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request,
 			option.WithEndpoint(srv.URL), option.WithoutAuthentication())
 		if err == nil {
 			t.Error("InitiateProjectCreationAsUser(project creation fails) = nil error, want an error")

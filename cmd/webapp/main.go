@@ -29,9 +29,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	projects := webapp.NewProjectCreationService()
 
 	log.Printf("listening on http://%s", displayAddr(*addr))
-	log.Fatal(http.ListenAndServe(*addr, webapp.Handler(cfg)))
+	log.Fatal(http.ListenAndServe(*addr, webapp.Handler(cfg, projects)))
 }
 
 // displayAddr turns an address suitable for net.Listen, such as ":8080" or

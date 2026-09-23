@@ -34,6 +34,20 @@ type InitiateProjectCreationResponse struct {
 	ID domain.ProjectCreationID
 }
 
+// ProjectCreationService is what the web application calls to start and
+// follow project provisioning. Its methods used to be bare functions;
+// making them methods gives dependencies — a BigQuery client, a Cloud Run
+// Jobs trigger, neither built yet — a place to be injected through
+// NewProjectCreationService instead of each method constructing its own.
+type ProjectCreationService struct{}
+
+// NewProjectCreationService returns a ProjectCreationService. It takes no
+// arguments yet — add fields and parameters here as the dependencies
+// mentioned above get decided.
+func NewProjectCreationService() *ProjectCreationService {
+	return &ProjectCreationService{}
+}
+
 // recordProjectCreationRequest validates request, then records it in
 // BigQuery as ProjectCreationProgress at StateCreatingProject — or, if
 // request.ID is already recorded, returns the existing ID unchanged instead
@@ -41,7 +55,7 @@ type InitiateProjectCreationResponse struct {
 // and InitiateProjectCreationAsServiceAccount call this first; it has no
 // principal-specific behavior, since nothing here needs the requester's own
 // credentials.
-func recordProjectCreationRequest(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
+func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
 	// step:
 	//   request.DisplayName・Requester・DeveloperGroupからdomain.ProjectCreationRequestを構成し、
 	//   バリデーション(domain.NewEmail, domain.NewGoogleGroup, domain.NewProjectCreationRequest)。
@@ -74,7 +88,7 @@ func recordProjectCreationRequest(ctx context.Context, request InitiateProjectCr
 // for good), delete whichever of this function and
 // InitiateProjectCreationAsServiceAccount lost out, and fold
 // recordProjectCreationRequest into the survivor.
-func InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, callerCredentials ...option.ClientOption) (InitiateProjectCreationResponse, error) {
+func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, callerCredentials ...option.ClientOption) (InitiateProjectCreationResponse, error) {
 	// step:
 	//   recordProjectCreationRequestを呼ぶ。エラーならそのまま返却。
 
@@ -98,7 +112,7 @@ func InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectC
 //
 // Use this once the automation service account has organization-level
 // project creator permission; see InitiateProjectCreationAsUser for now.
-func InitiateProjectCreationAsServiceAccount(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
+func (s *ProjectCreationService) InitiateProjectCreationAsServiceAccount(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
 	// step:
 	//   recordProjectCreationRequestを呼ぶ。エラーならそのまま返却。
 
@@ -125,7 +139,7 @@ func InitiateProjectCreationAsServiceAccount(ctx context.Context, request Initia
 // parameter, so tests can only reach it via callerCredentials, faking the
 // HTTP transport rather than mocking in Go — undecided if that's worth
 // changing; revisit later.
-func createProjectAndGrantAutomationAccess(ctx context.Context, request domain.ProjectCreationRequest, callerCredentials ...option.ClientOption) (*googlecloud.Project, error) {
+func (s *ProjectCreationService) createProjectAndGrantAutomationAccess(ctx context.Context, request domain.ProjectCreationRequest, callerCredentials ...option.ClientOption) (*googlecloud.Project, error) {
 	// step:
 	//   callerCredentialsでgooglecloud.NewProjectsClientを構成し、
 	//   request.DisplayNameでプロジェクトを作成(ProjectsClient.Create)。
@@ -145,7 +159,7 @@ func createProjectAndGrantAutomationAccess(ctx context.Context, request domain.P
 type GetProjectCreationProgressResponse struct{}
 
 // GetProjectCreationProgress returns the progress for a project creation request.
-func GetProjectCreationProgress(id domain.ProjectCreationID) (GetProjectCreationProgressResponse, error) {
+func (s *ProjectCreationService) GetProjectCreationProgress(id domain.ProjectCreationID) (GetProjectCreationProgressResponse, error) {
 	return GetProjectCreationProgressResponse{}, nil
 }
 
@@ -154,6 +168,6 @@ func GetProjectCreationProgress(id domain.ProjectCreationID) (GetProjectCreation
 type RestartProjectCreationResponse struct{}
 
 // RestartProjectCreation resumes a project creation request after an error.
-func RestartProjectCreation(id domain.ProjectCreationID) (RestartProjectCreationResponse, error) {
+func (s *ProjectCreationService) RestartProjectCreation(id domain.ProjectCreationID) (RestartProjectCreationResponse, error) {
 	return RestartProjectCreationResponse{}, nil
 }
