@@ -3,9 +3,9 @@
 //	go run ./cmd/webapp [-addr host:port] [-oauth-client path]
 //
 // If -addr is not given, the port defaults to $PORT (Cloud Run sets this),
-// falling back to 8080. -oauth-client defaults to client_secret.json in the
-// current directory (see webapp/oauth-client.md), so this is normally run
-// from the repository root.
+// falling back to 8080. -oauth-client defaults to secrets/client_secret.json
+// under the current directory (see webapp/oauth-client.md), so this is
+// normally run from the repository root.
 package main
 
 import (
@@ -22,7 +22,7 @@ import (
 func main() {
 	defaultAddr := ":" + cmp.Or(os.Getenv("PORT"), "8080")
 	addr := flag.String("addr", defaultAddr, "address to listen on")
-	oauthClient := flag.String("oauth-client", "client_secret.json", "path to the downloaded OAuth client JSON (see webapp/oauth-client.md)")
+	oauthClient := flag.String("oauth-client", "secrets/client_secret.json", "path to the downloaded OAuth client JSON (see webapp/oauth-client.md)")
 	flag.Parse()
 
 	cfg, err := webapp.LoadOAuthConfig(*oauthClient)

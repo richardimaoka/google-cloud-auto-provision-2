@@ -9,7 +9,7 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/terraform.tfvars
 
-client_secret.json
+/secrets/
 
 # Recorded API responses, before the identifiers are replaced
 googlecloud/samples/scripts/out/

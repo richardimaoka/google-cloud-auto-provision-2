@@ -12,6 +12,7 @@ locals {
     "run.googleapis.com",
     "artifactregistry.googleapis.com",
     "iap.googleapis.com",
+    "secretmanager.googleapis.com",
   ]
 }
 
@@ -55,6 +56,30 @@ resource "google_artifact_registry_repository" "webapp" {
   depends_on = [google_project_service.apis]
 }
 
+# Holds webapp/oauth-client.md's downloaded OAuth client JSON. Terraform only
+# creates the secret itself; add the real value by hand once, out-of-band:
+#   gcloud secrets versions add webapp-oauth-client --data-file=secrets/client_secret.json
+# It's never in this repo's source or in Terraform state, same as
+# secrets/client_secret.json itself.
+resource "google_secret_manager_secret" "oauth_client" {
+  project   = google_project.this.project_id
+  secret_id = "webapp-oauth-client"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# Lets the webapp's own runtime identity read the secret mounted into it below.
+resource "google_secret_manager_secret_iam_member" "oauth_client_accessor" {
+  project   = google_project.this.project_id
+  secret_id = google_secret_manager_secret.oauth_client.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.automation.email}"
+}
+
 # The Cloud Run service for the webapp package (see ../webapp, ../cmd/webapp).
 resource "google_cloud_run_v2_service" "webapp" {
   project     = google_project.this.project_id
@@ -68,10 +93,30 @@ resource "google_cloud_run_v2_service" "webapp" {
     containers {
       # Placeholder until the real image is pushed and deployed (see README); ignore_changes below keeps it from being reverted.
       image = "us-docker.pkg.dev/cloudrun/container/hello"
+      args  = ["-oauth-client=/secrets/client_secret.json"]
+
+      volume_mounts {
+        name       = "oauth-client"
+        mount_path = "/secrets"
+      }
+    }
+
+    volumes {
+      name = "oauth-client"
+      secret {
+        secret = google_secret_manager_secret.oauth_client.secret_id
+        items {
+          path    = "client_secret.json"
+          version = "latest"
+        }
+      }
     }
   }
 
-  depends_on = [google_project_service.apis]
+  depends_on = [
+    google_project_service.apis,
+    google_secret_manager_secret_iam_member.oauth_client_accessor,
+  ]
 
   lifecycle {
     ignore_changes = [template[0].containers[0].image]

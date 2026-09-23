@@ -7,8 +7,9 @@ package webapp
 // browser and approve access. The token Google returns is saved to
 // testdata/token.json, which is git-ignored.
 //
-// The OAuth client comes from client_secret.json in the repository root, the
-// file the Cloud Console offers as "Download JSON" (see oauth-client.md). It
+// The OAuth client comes from secrets/client_secret.json under the
+// repository root, the file the Cloud Console offers as "Download JSON" (see
+// oauth-client.md). It
 // must be a Web application client with exactly one redirect URI, an http URL
 // on localhost with a port and a path, because this test serves that URI
 // itself. Run, from the repository root:
@@ -37,7 +38,7 @@ import (
 
 const (
 	// Relative to this package's directory, where go test runs.
-	clientSecretPath = "../client_secret.json"
+	clientSecretPath = "../secrets/client_secret.json"
 	tokenPath        = "testdata/token.json"
 	authTimeout      = 5 * time.Minute
 )

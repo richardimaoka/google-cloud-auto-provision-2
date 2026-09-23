@@ -1,5 +1,5 @@
 .git
-client_secret.json
+secrets
 .env
 .env.integration
 data

@@ -2,8 +2,8 @@
 
 Terraform can't create an OAuth client for a regular web app, so this is done
 by hand in the Cloud Console, in the project that `terraform/` manages. The
-result is a `client_secret.json` file in the repository root, holding the client
-ID, secret and redirect URI.
+result is a `client_secret.json` file in `secrets/` under the repository
+root, holding the client ID, secret and redirect URI.
 
 The Console menus have been reorganized under **Google Auth Platform**, and the
 names may change again. Open the project, then search for "Google Auth
@@ -56,9 +56,10 @@ or `127.0.0.1` one.
 ## 5. Download the client file
 
 When you create the client, use **Download JSON** and save the file as
-`client_secret.json` in the repository root. Google's documentation says the
-secret can't be recovered later, so download it then. If you lose it, you have
-to create a new client.
+`secrets/client_secret.json` under the repository root (create the `secrets/`
+directory if it doesn't exist yet). Google's documentation says the secret
+can't be recovered later, so download it then. If you lose it, you have to
+create a new client.
 
 `client_secret.json` is git-ignored. Never commit it. If it leaks, delete the
 client in the Console and create a new one.

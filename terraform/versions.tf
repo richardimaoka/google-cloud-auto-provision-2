@@ -3,7 +3,7 @@ terraform {
 
   required_providers {
     google = {
-      source  = "hashicorp/google"
+      source = "hashicorp/google"
       # >= 7.x for google_cloud_run_v2_service's iap_enabled field.
       version = "~> 8.0"
     }

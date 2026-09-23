@@ -93,7 +93,27 @@ configured by hand for the webapp's own OAuth client — see
 [../webapp/oauth-client.md](../webapp/oauth-client.md) — so set that up first
 if you haven't.
 
+The service reads that same OAuth client's JSON from Secret Manager, mounted
+as a file at `/secrets/client_secret.json` (`google_secret_manager_secret.oauth_client`,
+passed to the binary with `-oauth-client`). Terraform only creates the secret
+itself; the service won't become Ready until it has a value — see below.
+
 ## Not managed by Terraform
 
-Terraform can't create an OAuth client for a regular web app. Set it up by hand
-in the Cloud Console: see [../webapp/oauth-client.md](../webapp/oauth-client.md).
+- **OAuth client.** Terraform can't create one for a regular web app. Set it up
+  by hand in the Cloud Console: see
+  [../webapp/oauth-client.md](../webapp/oauth-client.md).
+- **OAuth client secret value.** `google_secret_manager_secret.oauth_client`
+  only creates the secret container; add the downloaded JSON's contents as its
+  first version by hand, so it's never in this repo or in Terraform state,
+  same as `secrets/client_secret.json` itself:
+
+```sh
+set -a
+. ./.env
+set +a
+project_id=$GOOGLE_CLOUD_PROJECT_ID
+
+gcloud secrets versions add webapp-oauth-client --project $project_id \
+    --data-file=secrets/client_secret.json
+```
