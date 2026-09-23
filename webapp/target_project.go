@@ -120,6 +120,11 @@ func InitiateProjectCreationAsServiceAccount(ctx context.Context, request Initia
 // does next (adding IAM bindings, setting up the PAM entitlement) — not
 // lasting privileges, since Phase 3 onward hands ongoing operation to the
 // service account's Workload Identity (see spec.md §2.3).
+//
+// This builds the googlecloud clients itself instead of taking one as a
+// parameter, so tests can only reach it via callerCredentials, faking the
+// HTTP transport rather than mocking in Go — undecided if that's worth
+// changing; revisit later.
 func createProjectAndGrantAutomationAccess(ctx context.Context, request domain.ProjectCreationRequest, callerCredentials ...option.ClientOption) (*googlecloud.Project, error) {
 	// step:
 	//   callerCredentialsでgooglecloud.NewProjectsClientを構成し、
