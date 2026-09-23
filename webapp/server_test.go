@@ -1,17 +1,19 @@
 package webapp
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
 	"golang.org/x/oauth2"
 )
 
-// testOAuthConfig is a config Handler can route with, but that never reaches
-// the network: every test below either never calls Google, or uses a token
-// with no expiry, which oauth2.Config.TokenSource returns without a refresh.
+// testOAuthConfig is a config Handler can route with. AuthURL isn't reached
+// by these tests (they inspect the redirect instead of following it);
+// TokenURL is overridden per test that needs a real exchange.
 func testOAuthConfig() *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     "test-client",
@@ -32,16 +34,14 @@ func TestHandleForm(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
-	body := w.Body.String()
-	if !strings.Contains(body, "Sign in with Google") {
-		t.Error("form doesn't show a sign-in link when not signed in")
-	}
-	if !strings.Contains(body, "disabled") {
-		t.Error("submit button isn't disabled when not signed in")
+	if !strings.Contains(w.Body.String(), `name="display_name"`) {
+		t.Error("form doesn't have the display_name field")
 	}
 }
 
-func TestHandleSubmit_RequiresSignIn(t *testing.T) {
+// TestHandleSubmit_RedirectsToGoogle checks that submitting starts a sign-in
+// immediately, without needing a prior, separate sign-in step.
+func TestHandleSubmit_RedirectsToGoogle(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test&email=a@example.com&group=g@example.com"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -50,27 +50,120 @@ func TestHandleSubmit_RequiresSignIn(t *testing.T) {
 	if w.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
 	}
-	if loc := w.Header().Get("Location"); loc != "/login" {
-		t.Errorf("Location = %q, want %q", loc, "/login")
+	loc, err := url.Parse(w.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse Location: %v", err)
+	}
+	if got := loc.Scheme + "://" + loc.Host + loc.Path; got != "https://example.com/auth" {
+		t.Errorf("redirected to %q, want the configured AuthURL", got)
+	}
+	if loc.Query().Get("state") == "" {
+		t.Error("redirect has no state parameter")
+	}
+	if loc.Query().Get("code_challenge") == "" {
+		t.Error("redirect has no PKCE code_challenge")
+	}
+
+	var flowCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == oauthFlowCookie {
+			flowCookie = c
+		}
+	}
+	if flowCookie == nil {
+		t.Fatal("submit didn't set the oauth flow cookie")
 	}
 }
 
+// TestHandleSubmit drives the whole flow: submit, extract the state and
+// cookie from the redirect, then simulate Google's own redirect back with a
+// code — against a fake token endpoint, since no real network call is made.
 func TestHandleSubmit(t *testing.T) {
-	sessionID := putSession(&oauth2.Token{AccessToken: "fake-token"})
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"access_token":"fake-token","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer tokenServer.Close()
 
-	req := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test+Project&email=a@example.com&group=g@example.com"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: sessionID})
-	w := httptest.NewRecorder()
-	Handler(testOAuthConfig()).ServeHTTP(w, req)
+	cfg := testOAuthConfig()
+	cfg.Endpoint.TokenURL = tokenServer.URL
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test+Project&email=a@example.com&group=g@example.com"))
+	submitReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	submitW := httptest.NewRecorder()
+	Handler(cfg).ServeHTTP(submitW, submitReq)
+
+	if submitW.Code != http.StatusFound {
+		t.Fatalf("submit status = %d, want %d", submitW.Code, http.StatusFound)
 	}
-	body := w.Body.String()
+	authURL, err := url.Parse(submitW.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse redirect: %v", err)
+	}
+	state := authURL.Query().Get("state")
+
+	var flowCookie *http.Cookie
+	for _, c := range submitW.Result().Cookies() {
+		if c.Name == oauthFlowCookie {
+			flowCookie = c
+		}
+	}
+	if flowCookie == nil {
+		t.Fatal("submit didn't set the oauth flow cookie")
+	}
+
+	callbackReq := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state="+url.QueryEscape(state)+"&code=fake-code", nil)
+	callbackReq.AddCookie(flowCookie)
+	callbackW := httptest.NewRecorder()
+	Handler(cfg).ServeHTTP(callbackW, callbackReq)
+
+	if callbackW.Code != http.StatusOK {
+		t.Fatalf("callback status = %d, body = %s", callbackW.Code, callbackW.Body.String())
+	}
+	body := callbackW.Body.String()
 	for _, want := range []string{"Test Project", "a@example.com", "g@example.com"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body doesn't contain %q:\n%s", want, body)
 		}
+	}
+}
+
+func TestHandleOAuthCallback_NoFlowCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state=x&code=y", nil)
+	w := httptest.NewRecorder()
+	Handler(testOAuthConfig()).ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHandleOAuthCallback_StateMismatch(t *testing.T) {
+	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test&email=a@example.com&group=g@example.com"))
+	submitReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	submitW := httptest.NewRecorder()
+	Handler(testOAuthConfig()).ServeHTTP(submitW, submitReq)
+
+	var flowCookie *http.Cookie
+	for _, c := range submitW.Result().Cookies() {
+		if c.Name == oauthFlowCookie {
+			flowCookie = c
+		}
+	}
+	if flowCookie == nil {
+		t.Fatal("submit didn't set the oauth flow cookie")
+	}
+
+	badState, err := encodeOAuthState(oauthState{Nonce: "wrong"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	callbackReq := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state="+url.QueryEscape(badState)+"&code=y", nil)
+	callbackReq.AddCookie(flowCookie)
+	w := httptest.NewRecorder()
+	Handler(testOAuthConfig()).ServeHTTP(w, callbackReq)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }

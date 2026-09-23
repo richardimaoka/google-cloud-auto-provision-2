@@ -2,6 +2,8 @@ package webapp
 
 import (
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -16,16 +18,11 @@ var formTemplate = template.Must(template.New("form").Parse(`<!DOCTYPE html>
 <head><title>New Project</title></head>
 <body>
 <h1>New Google Cloud project</h1>
-{{if .SignedIn}}
-<p>Signed in.</p>
-{{else}}
-<p><a href="/login">Sign in with Google</a> to submit a request.</p>
-{{end}}
 <form method="post" action="/submit">
 <p><label>Project display name<br><input type="text" name="display_name" required></label></p>
 <p><label>Your email<br><input type="email" name="email" required></label></p>
 <p><label>Google group email<br><input type="email" name="group" required></label></p>
-<button type="submit"{{if not .SignedIn}} disabled{{end}}>Submit</button>
+<button type="submit">Submit</button>
 </form>
 </body>
 </html>
@@ -46,11 +43,6 @@ var resultTemplate = template.Must(template.New("result").Parse(`<!DOCTYPE html>
 </html>
 `))
 
-// formPageData is what formTemplate renders.
-type formPageData struct {
-	SignedIn bool
-}
-
 // resultData is what resultTemplate renders.
 type resultData struct {
 	ID          domain.ProjectCreationID
@@ -59,9 +51,10 @@ type resultData struct {
 	Group       string
 }
 
-// Handler returns the HTTP handler for the web application: sign-in with
-// Google, a form to enter a new project's display name, requester email, and
-// developer group email, and a page showing what was submitted.
+// Handler returns the HTTP handler for the web application: a form to enter
+// a new project's display name, requester email, and developer group email,
+// which signs the caller in with Google as part of submitting it, and a page
+// showing what was submitted.
 //
 // cfg comes from LoadOAuthConfig. Its RedirectURL's path is served for
 // Google's sign-in redirect, alongside the form's own routes.
@@ -75,41 +68,120 @@ func Handler(cfg *oauth2.Config) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", handleForm)
-	mux.HandleFunc("GET /login", handleLogin(cfg))
-	mux.HandleFunc("GET "+redirect.Path, handleOAuthCallback(cfg))
 	mux.HandleFunc("POST /submit", handleSubmit(cfg))
+	mux.HandleFunc("GET "+redirect.Path, handleOAuthCallback(cfg))
 	return mux
 }
 
 func handleForm(w http.ResponseWriter, r *http.Request) {
-	_, signedIn := getSession(r)
-	formTemplate.Execute(w, formPageData{SignedIn: signedIn})
+	formTemplate.Execute(w, nil)
 }
 
-// handleSubmit initiates project creation under the signed-in caller's own
-// OAuth-delegated credentials (see InitiateProjectCreationAsUser). It
-// doesn't create anything yet: InitiateProjectCreationAsUser's own steps are
-// still unimplemented, so this only exercises the HTTP-to-webapp plumbing.
+// handleSubmit starts a sign-in for the submitted request: it stashes a
+// fresh CSRF nonce and PKCE verifier in oauthFlowCookie, encodes the same
+// nonce and the form data into the OAuth "state" parameter, and redirects to
+// Google's consent screen. handleOAuthCallback does the rest once the caller
+// comes back — immediately, if they're already signed in to Google in this
+// browser.
 func handleSubmit(cfg *oauth2.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, signedIn := getSession(r)
-		if !signedIn {
-			http.Redirect(w, r, "/login", http.StatusFound)
-			return
-		}
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		request := InitiateProjectCreationRequest{
-			ID:             domain.ProjectCreationID(rand.Text()),
+		flow := oauthFlowState{Nonce: rand.Text(), Verifier: oauth2.GenerateVerifier()}
+		flowData, err := json.Marshal(flow)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     oauthFlowCookie,
+			Value:    base64.RawURLEncoding.EncodeToString(flowData),
+			Path:     "/",
+			MaxAge:   600,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		state, err := encodeOAuthState(oauthState{
+			Nonce:          flow.Nonce,
+			RequestID:      domain.ProjectCreationID(rand.Text()),
 			DisplayName:    r.FormValue("display_name"),
 			Requester:      r.FormValue("email"),
 			DeveloperGroup: r.FormValue("group"),
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-		// cfg.TokenSource refreshes token itself if it's expired, unlike a bare
-		// oauth2.StaticTokenSource(token).
+
+		// Ask for a refresh token: without AccessTypeOffline the access token
+		// alone would go stale during a slow, multi-step initial setup.
+		authURL := cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(flow.Verifier))
+		http.Redirect(w, r, authURL, http.StatusFound)
+	}
+}
+
+// handleOAuthCallback completes a sign-in started by handleSubmit: it checks
+// the CSRF nonce, exchanges the code for a token using the PKCE verifier,
+// and calls InitiateProjectCreationAsUser with that token — used once, right
+// here, and never stored anywhere.
+func handleOAuthCallback(cfg *oauth2.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, err := r.Cookie(oauthFlowCookie)
+		if err != nil {
+			http.Error(w, "no sign-in in progress", http.StatusBadRequest)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: oauthFlowCookie, Path: "/", MaxAge: -1})
+
+		flowData, err := base64.RawURLEncoding.DecodeString(c.Value)
+		if err != nil {
+			http.Error(w, "invalid sign-in state", http.StatusBadRequest)
+			return
+		}
+		var flow oauthFlowState
+		if err := json.Unmarshal(flowData, &flow); err != nil {
+			http.Error(w, "invalid sign-in state", http.StatusBadRequest)
+			return
+		}
+
+		q := r.URL.Query()
+		if e := q.Get("error"); e != "" {
+			http.Error(w, "authorization failed: "+e, http.StatusBadRequest)
+			return
+		}
+		state, err := decodeOAuthState(q.Get("state"))
+		if err != nil {
+			http.Error(w, "invalid state parameter", http.StatusBadRequest)
+			return
+		}
+		if state.Nonce != flow.Nonce {
+			http.Error(w, "state mismatch", http.StatusBadRequest)
+			return
+		}
+		code := q.Get("code")
+		if code == "" {
+			http.Error(w, "no code in redirect", http.StatusBadRequest)
+			return
+		}
+
+		token, err := cfg.Exchange(r.Context(), code, oauth2.VerifierOption(flow.Verifier))
+		if err != nil {
+			http.Error(w, "exchange code: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		request := InitiateProjectCreationRequest{
+			ID:             state.RequestID,
+			DisplayName:    state.DisplayName,
+			Requester:      state.Requester,
+			DeveloperGroup: state.DeveloperGroup,
+		}
+		// cfg.TokenSource refreshes token itself if it goes stale during the
+		// initial setup, unlike a bare oauth2.StaticTokenSource(token).
 		callerCredentials := option.WithTokenSource(cfg.TokenSource(r.Context(), token))
 		resp, err := InitiateProjectCreationAsUser(r.Context(), request, callerCredentials)
 		if err != nil {

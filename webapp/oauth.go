@@ -1,16 +1,14 @@
 package webapp
 
 import (
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
-	"sync"
 
+	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -88,124 +86,53 @@ func LoadOAuthConfig(path string) (*oauth2.Config, error) {
 	return cfg, nil
 }
 
-// sessions holds signed-in users' tokens, keyed by a random ID stored in the
-// sessionCookie. In-memory only: it doesn't survive a restart, and doesn't
-// work past a single instance. That's fine to see the sign-in flow work; a
-// real deployment needs a shared store instead.
-var sessions = struct {
-	mu sync.Mutex
-	m  map[string]*oauth2.Token
-}{m: map[string]*oauth2.Token{}}
-
-const sessionCookie = "session"
-
-func putSession(token *oauth2.Token) string {
-	id := rand.Text()
-	sessions.mu.Lock()
-	sessions.m[id] = token
-	sessions.mu.Unlock()
-	return id
-}
-
-func getSession(r *http.Request) (*oauth2.Token, bool) {
-	c, err := r.Cookie(sessionCookie)
-	if err != nil {
-		return nil, false
-	}
-	sessions.mu.Lock()
-	token, ok := sessions.m[c.Value]
-	sessions.mu.Unlock()
-	return token, ok
-}
-
-// oauthFlowCookie holds oauthFlowState between handleLogin's redirect and
+// oauthFlowCookie holds oauthFlowState between handleSubmit's redirect and
 // handleOAuthCallback, for the one sign-in attempt currently in flight.
+// Nothing here is ever stored past that: no session, no token, in memory or
+// otherwise.
 const oauthFlowCookie = "oauth_flow"
 
-// oauthFlowState is what handleLogin stashes in oauthFlowCookie: the CSRF
-// state and PKCE verifier handleOAuthCallback must see again to accept the
-// redirect back from Google.
+// oauthFlowState is what handleSubmit stashes in oauthFlowCookie: the CSRF
+// nonce (checked against the matching field of oauthState, which travels
+// separately through the OAuth "state" parameter) and the PKCE verifier.
+// Both must stay off any URL — unlike oauthState, which Google and the
+// browser both see — so they live only here.
 type oauthFlowState struct {
-	State    string `json:"state"`
+	Nonce    string `json:"nonce"`
 	Verifier string `json:"verifier"`
 }
 
-// handleLogin starts a sign-in: it stashes a fresh CSRF state and PKCE
-// verifier in oauthFlowCookie, then redirects to Google's consent screen.
-func handleLogin(cfg *oauth2.Config) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		flow := oauthFlowState{State: rand.Text(), Verifier: oauth2.GenerateVerifier()}
-		data, err := json.Marshal(flow)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		http.SetCookie(w, &http.Cookie{
-			Name:     oauthFlowCookie,
-			Value:    base64.RawURLEncoding.EncodeToString(data),
-			Path:     "/",
-			MaxAge:   600,
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		})
-
-		// Ask for a refresh token: without AccessTypeOffline the access token
-		// alone would go stale during a slow, multi-step initial setup.
-		authURL := cfg.AuthCodeURL(flow.State, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(flow.Verifier))
-		http.Redirect(w, r, authURL, http.StatusFound)
-	}
+// oauthState is encoded into the OAuth "state" parameter handleSubmit sends
+// to Google, and decoded back out of it by handleOAuthCallback: the CSRF
+// nonce (see oauthFlowState) and everything needed to call
+// InitiateProjectCreationAsUser once the token comes back. Nothing here is
+// secret — state travels through the browser's address bar and Google's own
+// systems — so nothing sensitive belongs here; in particular, never a token
+// or the PKCE verifier.
+type oauthState struct {
+	Nonce          string                   `json:"nonce"`
+	RequestID      domain.ProjectCreationID `json:"requestID"`
+	DisplayName    string                   `json:"displayName"`
+	Requester      string                   `json:"requester"`
+	DeveloperGroup string                   `json:"developerGroup"`
 }
 
-// handleOAuthCallback completes a sign-in: it checks state, exchanges the
-// code for a token, and stores the token under a new sessionCookie.
-func handleOAuthCallback(cfg *oauth2.Config) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie(oauthFlowCookie)
-		if err != nil {
-			http.Error(w, "no sign-in in progress", http.StatusBadRequest)
-			return
-		}
-		http.SetCookie(w, &http.Cookie{Name: oauthFlowCookie, Path: "/", MaxAge: -1})
-
-		raw, err := base64.RawURLEncoding.DecodeString(c.Value)
-		if err != nil {
-			http.Error(w, "invalid sign-in state", http.StatusBadRequest)
-			return
-		}
-		var flow oauthFlowState
-		if err := json.Unmarshal(raw, &flow); err != nil {
-			http.Error(w, "invalid sign-in state", http.StatusBadRequest)
-			return
-		}
-
-		q := r.URL.Query()
-		if e := q.Get("error"); e != "" {
-			http.Error(w, "authorization failed: "+e, http.StatusBadRequest)
-			return
-		}
-		if q.Get("state") != flow.State {
-			http.Error(w, "state mismatch", http.StatusBadRequest)
-			return
-		}
-		code := q.Get("code")
-		if code == "" {
-			http.Error(w, "no code in redirect", http.StatusBadRequest)
-			return
-		}
-
-		token, err := cfg.Exchange(r.Context(), code, oauth2.VerifierOption(flow.Verifier))
-		if err != nil {
-			http.Error(w, "exchange code: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     sessionCookie,
-			Value:    putSession(token),
-			Path:     "/",
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		})
-		http.Redirect(w, r, "/", http.StatusFound)
+func encodeOAuthState(s oauthState) (string, error) {
+	data, err := json.Marshal(s)
+	if err != nil {
+		return "", err
 	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func decodeOAuthState(raw string) (oauthState, error) {
+	data, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return oauthState{}, err
+	}
+	var s oauthState
+	if err := json.Unmarshal(data, &s); err != nil {
+		return oauthState{}, err
+	}
+	return s, nil
 }
