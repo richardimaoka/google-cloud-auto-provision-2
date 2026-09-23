@@ -26,6 +26,7 @@ func testOAuthConfig() *oauth2.Config {
 	}
 }
 
+// TestHandleForm checks that the form page renders.
 func TestHandleForm(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -39,8 +40,7 @@ func TestHandleForm(t *testing.T) {
 	}
 }
 
-// TestHandleSubmit_RedirectsToGoogle checks that submitting starts a sign-in
-// immediately, without needing a prior, separate sign-in step.
+// TestHandleSubmit_RedirectsToGoogle checks that submitting starts sign-in directly.
 func TestHandleSubmit_RedirectsToGoogle(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test&email=a@example.com&group=g@example.com"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -57,6 +57,7 @@ func TestHandleSubmit_RedirectsToGoogle(t *testing.T) {
 	if got := loc.Scheme + "://" + loc.Host + loc.Path; got != "https://example.com/auth" {
 		t.Errorf("redirected to %q, want the configured AuthURL", got)
 	}
+	// Presence only; contents are checked in TestHandleOAuthCallback_StateMismatch.
 	if loc.Query().Get("state") == "" {
 		t.Error("redirect has no state parameter")
 	}
@@ -75,9 +76,8 @@ func TestHandleSubmit_RedirectsToGoogle(t *testing.T) {
 	}
 }
 
-// TestHandleSubmit drives the whole flow: submit, extract the state and
-// cookie from the redirect, then simulate Google's own redirect back with a
-// code — against a fake token endpoint, since no real network call is made.
+// TestHandleSubmit drives the whole round trip: submit, then simulate
+// Google's callback, against a fake token endpoint.
 func TestHandleSubmit(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -100,6 +100,7 @@ func TestHandleSubmit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse redirect: %v", err)
 	}
+	// Opaque here; forwarded below, not decoded.
 	state := authURL.Query().Get("state")
 
 	var flowCookie *http.Cookie
@@ -128,6 +129,8 @@ func TestHandleSubmit(t *testing.T) {
 	}
 }
 
+// TestHandleOAuthCallback_NoFlowCookie checks that the callback rejects a
+// request with no prior /submit (no oauthFlowCookie).
 func TestHandleOAuthCallback_NoFlowCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state=x&code=y", nil)
 	w := httptest.NewRecorder()
@@ -138,6 +141,8 @@ func TestHandleOAuthCallback_NoFlowCookie(t *testing.T) {
 	}
 }
 
+// TestHandleOAuthCallback_StateMismatch checks the CSRF check: a state whose
+// nonce doesn't match the flow cookie's is rejected.
 func TestHandleOAuthCallback_StateMismatch(t *testing.T) {
 	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test&email=a@example.com&group=g@example.com"))
 	submitReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
