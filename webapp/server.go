@@ -1,7 +1,9 @@
 package webapp
 
 import (
+	"bytes"
 	"crypto/rand"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"html/template"
@@ -13,37 +15,26 @@ import (
 	"google.golang.org/api/option"
 )
 
-var formTemplate = template.Must(template.New("form").Parse(`<!DOCTYPE html>
-<html>
-<head><title>New Project</title></head>
-<body>
-<h1>New Google Cloud project</h1>
-<form method="post" action="/submit">
-<p><label>Project display name<br><input type="text" name="display_name" required></label></p>
-<p><label>Your email<br><input type="email" name="email" required></label></p>
-<p><label>Google group email<br><input type="email" name="group" required></label></p>
-<button type="submit">Submit</button>
-</form>
-</body>
-</html>
-`))
+//go:embed templates/*.html
+var templatesFS embed.FS
 
-var resultTemplate = template.Must(template.New("result").Parse(`<!DOCTYPE html>
-<html>
-<head><title>Submitted</title></head>
-<body>
-<h1>Submitted</h1>
-<ul>
-<li>Request ID: {{.ID}}</li>
-<li>Project display name: {{.DisplayName}}</li>
-<li>Your email: {{.Email}}</li>
-<li>Google group email: {{.Group}}</li>
-</ul>
-</body>
-</html>
-`))
+// templates holds form.html and result.html, executed by name with
+// ExecuteTemplate.
+var templates = template.Must(template.ParseFS(templatesFS, "templates/*.html"))
 
-// resultData is what resultTemplate renders.
+// renderTemplate executes the named template into a buffer first, so a
+// failure partway through can still cleanly become a 500 instead of a
+// silently truncated 200 already written to w.
+func renderTemplate(w http.ResponseWriter, name string, data any) {
+	var buf bytes.Buffer
+	if err := templates.ExecuteTemplate(&buf, name, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	buf.WriteTo(w)
+}
+
+// resultData is what result.html renders.
 type resultData struct {
 	ID          domain.ProjectCreationID
 	DisplayName string
@@ -74,7 +65,7 @@ func Handler(cfg *oauth2.Config) http.Handler {
 }
 
 func handleForm(w http.ResponseWriter, r *http.Request) {
-	formTemplate.Execute(w, nil)
+	renderTemplate(w, "form.html", nil)
 }
 
 // handleSubmit starts a sign-in for the submitted request: it stashes a
@@ -189,7 +180,7 @@ func handleOAuthCallback(cfg *oauth2.Config) http.HandlerFunc {
 			return
 		}
 
-		resultTemplate.Execute(w, resultData{
+		renderTemplate(w, "result.html", resultData{
 			ID:          resp.ID,
 			DisplayName: request.DisplayName,
 			Email:       request.Requester,
