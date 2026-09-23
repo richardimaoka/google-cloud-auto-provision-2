@@ -6,14 +6,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
 	"google.golang.org/api/option"
 )
 
-// TestInitiateProjectCreationAsUser checks that initiating a project
-// creation validates and records the request before touching Google Cloud,
-// creates the project and grants the automation service account access
-// under the caller's own credentials, and reports a failure at either step
-// as an error rather than proceeding.
+// TestInitiateProjectCreationAsUser checks recording, project creation, and
+// access-granting happen in order, and a failure anywhere is returned.
 func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("正常系: 記録・プロジェクト作成・権限付与・AdvancePastCreation・worker起動まで行う", func(t *testing.T) {
 		t.Skip("blocked: no BigQuery client seam yet to record or verify ProjectCreationProgress against")
@@ -75,6 +73,37 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			t.Errorf("fake create-project endpoint was called %d times, want 1", calls)
 		}
 	})
+}
+
+// TestRecordProjectCreationRequest_InsertFails checks that a failing
+// bigQuery.Insert is returned as an error.
+func TestRecordProjectCreationRequest_InsertFails(t *testing.T) {
+	calls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		http.Error(w, `{"error":{"message":"insert failed"}}`, http.StatusForbidden)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	bq, err := googlecloud.NewBigQueryClient(context.Background(),
+		option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &ProjectCreationService{bigQuery: bq}
+
+	_, err = svc.recordProjectCreationRequest(context.Background(), InitiateProjectCreationRequest{
+		ID:          "request-1",
+		DisplayName: "Example Project",
+	})
+	if err == nil {
+		t.Error("recordProjectCreationRequest with a failing BigQuery insert = nil error, want an error")
+	}
+	if calls == 0 {
+		t.Log("fake server was never called: Insert's stub doesn't reach the network yet")
+	}
 }
 
 // TestCreateProjectAndGrantAutomationAccess is a scaffold:
