@@ -4,6 +4,7 @@ package webapp
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
@@ -39,7 +40,13 @@ type InitiateProjectCreationResponse struct {
 // making them methods gives dependencies — a BigQuery client, a Cloud Run
 // Jobs trigger, neither built yet — a place to be injected through
 // NewProjectCreationService instead of each method constructing its own.
-type ProjectCreationService struct{}
+type ProjectCreationService struct {
+	// bigQuery is always nil for now: NewProjectCreationService doesn't
+	// accept one yet. recordProjectCreationRequest calls bigQuery.Insert,
+	// which is itself still a stub (always succeeds) — so this field exists
+	// to show the call shape, not to actually persist anything yet.
+	bigQuery *googlecloud.BigQueryClient
+}
 
 // NewProjectCreationService returns a ProjectCreationService. It takes no
 // arguments yet — add fields and parameters here as the dependencies
@@ -65,10 +72,19 @@ func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Contex
 	//   (ProjectCreationProgressはdomain.ProjectCreationRequestを必須で持つため、構成前には記録できない)
 
 	// step:
-	//   以下をBigQueryに記録。
-	//     - ProjectCreationProgress, State = "creating_project", status = "in_progress"
-	//   request.IDが記録済みなら重複申請なので、記録も後続処理の起動もせず、記録済みのIDで成功を返却。
+	//   State = "creating_project", status = "in_progress"の形で記録。
+	//   request.IDが記録済みなら重複申請なので、記録も後続処理の起動もせず、記録済みのIDで成功を返却
+	//   (まだ未実装。下のInsert呼び出しは常に成功するのでこの分岐は効かない)。
 	//   ただし記録済みのrequestと中身が違う場合はエラーを返却。
+	//
+	// projectID/datasetID below are placeholders (not sourced from anywhere
+	// real yet) — this just shows the call shape.
+	if err := s.bigQuery.Insert(ctx, "", "", googlecloud.ProjectCreationRecord{
+		ID:          string(request.ID),
+		DisplayName: request.DisplayName,
+	}); err != nil {
+		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation request: %w", err)
+	}
 
 	return InitiateProjectCreationResponse{ID: request.ID}, nil
 }
