@@ -34,8 +34,8 @@ type InitiateProjectCreationResponse struct {
 	ID domain.ProjectCreationID
 }
 
-// projectCreationStore records ProjectCreationProgress.
-type projectCreationStore interface {
+// progressStore records ProjectCreationProgress.
+type progressStore interface {
 	// Create returns alreadyRecorded=true, recording nothing, if progress.ID exists.
 	Create(ctx context.Context, progress domain.ProjectCreationProgress) (alreadyRecorded bool, err error)
 	Update(ctx context.Context, progress domain.ProjectCreationProgress) error
@@ -43,12 +43,12 @@ type projectCreationStore interface {
 
 // ProjectCreationService is what the web application calls to start and
 // follow project provisioning. Its methods used to be bare functions;
-// making them methods gives dependencies — a projectCreationStore, a Cloud Run
+// making them methods gives dependencies — a progressStore, a Cloud Run
 // Jobs trigger — a place to be injected through NewProjectCreationService
 // instead of each method constructing its own.
 type ProjectCreationService struct {
-	// store is nil outside tests until a real projectCreationStore exists.
-	store projectCreationStore
+	// store is nil outside tests until a real progressStore exists.
+	store progressStore
 }
 
 // NewProjectCreationService returns a ProjectCreationService. It takes no

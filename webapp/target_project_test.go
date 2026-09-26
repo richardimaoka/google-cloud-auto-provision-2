@@ -11,20 +11,20 @@ import (
 	"google.golang.org/api/option"
 )
 
-// fakeProjectCreationStore is an in-memory projectCreationStore. Set err to
+// fakeProgressStore is an in-memory progressStore. Set err to
 // make every call fail.
-type fakeProjectCreationStore struct {
+type fakeProgressStore struct {
 	err      error
 	recorded map[domain.ProjectCreationID]domain.ProjectCreationProgress
 	creates  int
 	updates  int
 }
 
-func newFakeProjectCreationStore() *fakeProjectCreationStore {
-	return &fakeProjectCreationStore{recorded: map[domain.ProjectCreationID]domain.ProjectCreationProgress{}}
+func newFakeProgressStore() *fakeProgressStore {
+	return &fakeProgressStore{recorded: map[domain.ProjectCreationID]domain.ProjectCreationProgress{}}
 }
 
-func (f *fakeProjectCreationStore) Create(ctx context.Context, progress domain.ProjectCreationProgress) (bool, error) {
+func (f *fakeProgressStore) Create(ctx context.Context, progress domain.ProjectCreationProgress) (bool, error) {
 	f.creates++
 	if f.err != nil {
 		return false, f.err
@@ -36,7 +36,7 @@ func (f *fakeProjectCreationStore) Create(ctx context.Context, progress domain.P
 	return false, nil
 }
 
-func (f *fakeProjectCreationStore) Update(ctx context.Context, progress domain.ProjectCreationProgress) error {
+func (f *fakeProgressStore) Update(ctx context.Context, progress domain.ProjectCreationProgress) error {
 	f.updates++
 	if f.err != nil {
 		return f.err
@@ -46,7 +46,7 @@ func (f *fakeProjectCreationStore) Update(ctx context.Context, progress domain.P
 }
 
 // recordedProgress returns a ProjectCreationProgress to pre-populate a
-// fakeProjectCreationStore with, as if an earlier request had been recorded.
+// fakeProgressStore with, as if an earlier request had been recorded.
 func recordedProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreationProgress {
 	t.Helper()
 	requester, err := domain.NewEmail("requester@example.com")
@@ -108,7 +108,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		srv := httptest.NewServer(mux)
 		defer srv.Close()
 
-		store := newFakeProjectCreationStore()
+		store := newFakeProgressStore()
 		store.recorded["request-retried"] = recordedProgress(t, "request-retried")
 		svc := &ProjectCreationService{store: store}
 
@@ -169,7 +169,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 // TestRecordProjectCreationRequest_StoreFails checks that a failing
 // store.Create is returned as an error.
 func TestRecordProjectCreationRequest_StoreFails(t *testing.T) {
-	store := newFakeProjectCreationStore()
+	store := newFakeProgressStore()
 	store.err = errors.New("create failed")
 	svc := &ProjectCreationService{store: store}
 
