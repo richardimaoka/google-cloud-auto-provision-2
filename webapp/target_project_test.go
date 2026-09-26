@@ -89,12 +89,16 @@ func newFakeGoogleGroups(t *testing.T) *fakeGoogleGroups {
 	return &fakeGoogleGroups{groups: map[string]domain.GoogleGroup{"developer-group@example.com": group}}
 }
 
-// fakeJobStarter records the IDs it was asked to start.
+// fakeJobStarter records the IDs it was asked to start. Set err to make Start fail.
 type fakeJobStarter struct {
+	err     error
 	started []domain.ProjectCreationID
 }
 
 func (f *fakeJobStarter) Start(ctx context.Context, id domain.ProjectCreationID) error {
+	if f.err != nil {
+		return f.err
+	}
 	f.started = append(f.started, id)
 	return nil
 }
@@ -106,12 +110,17 @@ type iamBinding struct {
 	role      domain.IAMRole
 }
 
-// fakeIAMClient records the bindings it was asked to add and remove.
+// fakeIAMClient records the bindings it was asked to add and remove. Set
+// err to make AddBinding fail.
 type fakeIAMClient struct {
+	err            error
 	added, removed []iamBinding
 }
 
 func (f *fakeIAMClient) AddBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error {
+	if f.err != nil {
+		return f.err
+	}
 	f.added = append(f.added, iamBinding{projectID, principal, role})
 	return nil
 }
@@ -184,7 +193,8 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+		iam := &fakeIAMClient{}
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, iam, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
 
 		// A valid request whose developer group has enough members in example.com.
 		request := InitiateProjectCreationRequest{
@@ -227,6 +237,15 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		}
 		if progress.Request().DisplayName != request.DisplayName {
 			t.Errorf("recorded DisplayName = %q, want %q", progress.Request().DisplayName, request.DisplayName)
+		}
+		// The service account gets projectIamAdmin on the new project, once.
+		role, err := domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := iamBinding{projectID: "example-project", principal: testServiceAccount(t), role: role}
+		if len(iam.added) != 1 || iam.added[0] != want {
+			t.Errorf("IAM bindings added = %v, want [%v]", iam.added, want)
 		}
 		// The job continues this request, so it must be started with its ID.
 		if len(jobs.started) != 1 || jobs.started[0] != domain.ProjectCreationID(request.ID) {
@@ -325,6 +344,107 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		}
 		if progress.State() != domain.StateCreatingProject || progress.Status() != domain.StatusError {
 			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateCreatingProject, domain.StatusError)
+		}
+	})
+
+	t.Run("既知の問題があれば記録もプロジェクト作成もせずエラーを返す", func(t *testing.T) {
+		// The developer group has one member, fewer than the minimum.
+		groups := newFakeGoogleGroups(t)
+		groupEmail, err := domain.NewEmail("developer-group@example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		alice, err := domain.NewEmail("alice@example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		groups.groups["developer-group@example.com"] = domain.NewGoogleGroup(groupEmail, []domain.GoogleGroupMember{
+			domain.NewGoogleGroupMember(alice, "MEMBER"),
+		})
+		store := newFakeProgressStore()
+		creator := &fakeProjectCreator{projectID: "example-project"}
+		jobs := &fakeJobStarter{}
+		svc := NewProjectCreationService(store, creator, groups, jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+
+		request := InitiateProjectCreationRequest{
+			ID:             "request-has-problem",
+			DisplayName:    "Example Project",
+			Requester:      "requester@example.com",
+			DeveloperGroup: "developer-group@example.com",
+		}
+		// Success: a ProjectCreationProblemsError, so the caller can show the
+		// problems, and nothing recorded, since the request was never accepted.
+		_, err = svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
+		var problemsErr *ProjectCreationProblemsError
+		if !errors.As(err, &problemsErr) {
+			t.Fatalf("InitiateProjectCreationAsUser(too few members) = %v, want a *ProjectCreationProblemsError", err)
+		}
+		if store.creates != 0 {
+			t.Errorf("store.Create was called %d times, want 0", store.creates)
+		}
+		if creator.calls != 0 {
+			t.Errorf("creator.Create was called %d times, want 0", creator.calls)
+		}
+		if len(jobs.started) != 0 {
+			t.Errorf("jobs started = %q, want none", jobs.started)
+		}
+	})
+
+	t.Run("権限付与が失敗したらerrorとして記録し、エラーを返す", func(t *testing.T) {
+		store := newFakeProgressStore()
+		creator := &fakeProjectCreator{projectID: "example-project"}
+		jobs := &fakeJobStarter{}
+		iam := &fakeIAMClient{err: errors.New("permission denied")}
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, iam, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+
+		request := InitiateProjectCreationRequest{
+			ID:             "request-binding-fails",
+			DisplayName:    "Example Project",
+			Requester:      "requester@example.com",
+			DeveloperGroup: "developer-group@example.com",
+		}
+		// Success: the IAM error comes back, the failure is recorded at the
+		// binding step, and no job is started.
+		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
+		if !errors.Is(err, iam.err) {
+			t.Errorf("InitiateProjectCreationAsUser(binding fails) = %v, want it to wrap %v", err, iam.err)
+		}
+		progress, ok := store.recorded[domain.ProjectCreationID(request.ID)]
+		if !ok {
+			t.Fatalf("no progress recorded for %q", request.ID)
+		}
+		if progress.State() != domain.StateAddingServiceAccountIAMBindings || progress.Status() != domain.StatusError {
+			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateAddingServiceAccountIAMBindings, domain.StatusError)
+		}
+		if len(jobs.started) != 0 {
+			t.Errorf("jobs started = %q, want none", jobs.started)
+		}
+	})
+
+	t.Run("worker起動が失敗したらerrorとして記録し、エラーを返す", func(t *testing.T) {
+		store := newFakeProgressStore()
+		creator := &fakeProjectCreator{projectID: "example-project"}
+		jobs := &fakeJobStarter{err: errors.New("quota exceeded")}
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+
+		request := InitiateProjectCreationRequest{
+			ID:             "request-job-fails",
+			DisplayName:    "Example Project",
+			Requester:      "requester@example.com",
+			DeveloperGroup: "developer-group@example.com",
+		}
+		// Success: the job error comes back and the failure is recorded at
+		// adding_iam_bindings, the state the job would have continued from.
+		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
+		if !errors.Is(err, jobs.err) {
+			t.Errorf("InitiateProjectCreationAsUser(job start fails) = %v, want it to wrap %v", err, jobs.err)
+		}
+		progress, ok := store.recorded[domain.ProjectCreationID(request.ID)]
+		if !ok {
+			t.Fatalf("no progress recorded for %q", request.ID)
+		}
+		if progress.State() != domain.StateAddingIAMBindings || progress.Status() != domain.StatusError {
+			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateAddingIAMBindings, domain.StatusError)
 		}
 	})
 }
