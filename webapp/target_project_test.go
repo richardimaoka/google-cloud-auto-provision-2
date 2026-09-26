@@ -206,8 +206,8 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if !ok {
 			t.Fatalf("no progress recorded for %q", request.ID)
 		}
-		if progress.State() != domain.StateAddingIAMBindings || progress.Status() != domain.StatusInProgress {
-			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateAddingIAMBindings, domain.StatusInProgress)
+		if progress.State() != domain.StateAddingServiceAccountIAMBindings || progress.Status() != domain.StatusInProgress {
+			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateAddingServiceAccountIAMBindings, domain.StatusInProgress)
 		}
 		if progress.ProjectID() != "example-project" {
 			t.Errorf("recorded ProjectID = %q, want %q", progress.ProjectID(), "example-project")

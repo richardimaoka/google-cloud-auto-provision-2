@@ -18,15 +18,17 @@ import (
 type State string
 
 const (
-	StateCreatingProject       State = "creating_project"
-	StateAddingIAMBindings     State = "adding_iam_bindings"
-	StateAddingPAMEntitlements State = "adding_pam_entitlements"
-	StateInitialSetupDone      State = "initial_setup_done"
+	StateCreatingProject                 State = "creating_project"
+	StateAddingServiceAccountIAMBindings State = "adding_service_account_iam_bindings"
+	StateAddingIAMBindings               State = "adding_iam_bindings"
+	StateAddingPAMEntitlements           State = "adding_pam_entitlements"
+	StateInitialSetupDone                State = "initial_setup_done"
 )
 
 // states lists the states in the order the setup visits them.
 var states = []State{
 	StateCreatingProject,
+	StateAddingServiceAccountIAMBindings,
 	StateAddingIAMBindings,
 	StateAddingPAMEntitlements,
 	StateInitialSetupDone,
@@ -144,7 +146,7 @@ func (p ProjectCreationProgress) Advance() (ProjectCreationProgress, error) {
 }
 
 // AdvancePastCreation returns the ProjectCreationProgress after the Google
-// Cloud project was created: StateAddingIAMBindings with StatusInProgress,
+// Cloud project was created: StateAddingServiceAccountIAMBindings with StatusInProgress,
 // carrying projectID from here on. It returns an error unless p is
 // StateCreatingProject with StatusInProgress, or if projectID is empty.
 //
@@ -159,7 +161,7 @@ func (p ProjectCreationProgress) AdvancePastCreation(projectID string) (ProjectC
 	if projectID == "" {
 		return ProjectCreationProgress{}, errors.New("project ID is empty")
 	}
-	return ProjectCreationProgress{revision: p.revision, id: p.id, request: p.request, state: StateAddingIAMBindings, status: StatusInProgress, projectID: projectID}, nil
+	return ProjectCreationProgress{revision: p.revision, id: p.id, request: p.request, state: StateAddingServiceAccountIAMBindings, status: StatusInProgress, projectID: projectID}, nil
 }
 
 // Fail returns the ProjectCreationProgress after the current operation failed: the same

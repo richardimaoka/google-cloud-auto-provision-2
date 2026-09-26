@@ -126,7 +126,7 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	}
 
 	// 利用者のtokenでプロジェクトを作成し、自動化Service Accountに権限を付与する。
-	// 成功したらadding_iam_bindingsに進め、失敗したらerrorとして記録する。
+	// 成功したらadding_service_account_iam_bindingsに進め、失敗したらerrorとして記録する。
 	projectID, err := s.projectCreator.Create(ctx, token, projectRequest)
 	if err != nil {
 		err = fmt.Errorf("create project: %w", err)
