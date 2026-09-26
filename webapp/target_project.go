@@ -63,6 +63,7 @@ type jobStarter interface {
 // iamClient changes a project's IAM bindings, acting as the user who owns token.
 type iamClient interface {
 	AddBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Principal, role domain.IAMRole) error
+	// RemoveBinding succeeds if principal doesn't have role, like AddBinding if it does.
 	RemoveBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Principal, role domain.IAMRole) error
 }
 
@@ -100,7 +101,7 @@ func NewProjectCreationService(ctx context.Context) (*ProjectCreationService, er
 		return nil, err
 	}
 	// TODO: build the other Google Cloud-backed dependencies once they exist.
-	return newProjectCreationService(cfg, nil, &resourceManagerProjects{}, &cloudIdentityGroups{}, nil, nil), nil
+	return newProjectCreationService(cfg, nil, &resourceManagerProjects{}, &cloudIdentityGroups{}, nil, &resourceManagerIAM{}), nil
 }
 
 // configFromEnvironment reads config from the environment.
