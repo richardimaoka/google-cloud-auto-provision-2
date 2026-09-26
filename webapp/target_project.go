@@ -166,7 +166,14 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 
 	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動する。
 	if err := s.jobStarter.Start(ctx, id); err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("start project creation job: %w", err)
+		err = fmt.Errorf("start project setup job: %w", err)
+		if failed, failErr := progress.Fail(); failErr != nil {
+			// progress.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
+			err = errors.Join(err, failErr)
+		} else if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
+			err = errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
+		}
+		return InitiateProjectCreationResponse{}, err
 	}
 
 	return InitiateProjectCreationResponse{ID: id}, nil
