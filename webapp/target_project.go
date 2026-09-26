@@ -5,6 +5,7 @@ package webapp
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
@@ -71,27 +72,22 @@ func NewProjectCreationService(store progressStore, creator projectCreator, grou
 // recordProjectCreationRequest records progress. If progress.ID is already
 // recorded, it records nothing and returns alreadyRecorded=true.
 func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Context, progress domain.ProjectCreationProgress) (alreadyRecorded bool, err error) {
+	alreadyRecorded, err = s.store.Create(ctx, progress)
+	if err != nil {
+		return false, fmt.Errorf("record project creation request: %w", err)
+	}
 	// step:
-	//   s.store.Createで記録。エラーなら返却。
-	//   ただし記録済みのrequestと中身が違う場合はエラーを返却(storeから記録済みの内容を得る方法は未定)。
+	//   記録済みのrequestと中身が違う場合はエラーを返却(storeから記録済みの内容を得る方法は未定)。
 
-	return false, nil
+	return alreadyRecorded, nil
 }
 
-// InitiateProjectCreationAsUser accepts a project creation request under the
-// caller's own Google account and returns once it is recorded. It creates
-// the project and grants the automation service account access to it under
-// token — the caller's own OAuth-delegated credentials — before handing the
-// rest of the initial setup to a Cloud Run job (see package worker), whose
-// progress is read with GetProjectCreationProgress. The returned error means
-// the request was not accepted.
-//
-// Use this while the automation service account has no organization-level
-// project creator permission. Once it's granted (or deliberately withheld
-// for good), delete whichever of this function and
-// InitiateProjectCreationAsServiceAccount lost out, and fold
-// recordProjectCreationRequest into the survivor.
+// InitiateProjectCreationAsUser records the request, creates the project with
+// the caller's token, and hands the rest of the setup to a Cloud Run job.
+// Use it until the automation service account can create projects itself.
 func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, token oauth2.TokenSource) (InitiateProjectCreationResponse, error) {
+	// フォームの文字列からdomain.ProjectCreationRequestを構成する。
+	// DeveloperGroupのメンバーはs.groupsで取得。不正な値ならエラーを返す。
 	requester, err := domain.NewEmail(request.Requester)
 	if err != nil {
 		return InitiateProjectCreationResponse{}, fmt.Errorf("requester: %w", err)
@@ -108,27 +104,77 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
-	_ = projectRequest // used by the steps below once they're implemented
 
-	// step:
-	//   s.breakGlassのアドレスにあるbreak-glassグループのメンバーをs.groupsで毎回取得。
-	//   判定はdomainの判定関数(I/Oなし、取得した情報とs.organizationを引数で受け取る)で行う。workerも同じ関数で再判定する。
-	//   問題があれば、記録せず、問題と推奨解決法とともにエラーを返却。
+	// break-glassグループの現在のメンバーを取得し、domainの判定関数で問題を探す。
+	// 問題があれば記録せずに返す(workerも同じ関数で再判定する)。
+	breakGlass, err := s.getBreakGlass(ctx)
+	if err != nil {
+		return InitiateProjectCreationResponse{}, err
+	}
+	if problems := domain.FindProjectCreationProblems(projectRequest, s.organization, breakGlass); len(problems) > 0 {
+		return InitiateProjectCreationResponse{}, &ProjectCreationProblemsError{Problems: problems}
+	}
 
-	// step:
-	//   State = "creating_project", status = "in_progress"のdomain.ProjectCreationProgressを構成し、
-	//   recordProjectCreationRequestを呼ぶ。エラーならそのまま返却。
-	//   alreadyRecordedならプロジェクト作成もworker起動もせず、request.IDで成功を返却。
+	// creating_projectとして記録する。
+	// 記録済みのIDなら重複申請なので、プロジェクトを作らずに成功を返す。
+	id := domain.ProjectCreationID(request.ID)
+	progress, err := domain.NewProjectCreationProgress(id, 1, projectRequest, domain.StateCreatingProject, domain.StatusInProgress, "")
+	if err != nil {
+		return InitiateProjectCreationResponse{}, err
+	}
+	alreadyRecorded, err := s.recordProjectCreationRequest(ctx, progress)
+	if err != nil {
+		return InitiateProjectCreationResponse{}, err
+	}
+	if alreadyRecorded {
+		return InitiateProjectCreationResponse{ID: id}, nil
+	}
 
-	// step:
-	//   tokenでs.creator.Createを呼ぶ。エラーならworkerを起動せず返却。
-	//   成功したら、作成したプロジェクトのIDを渡してprogress.AdvancePastCreationを呼び、
-	//   その結果をs.store.Updateで記録(State = "adding_iam_bindings", status = "in_progress"になる)。
+	// 利用者のtokenでプロジェクトを作成し、自動化Service Accountに権限を付与する。
+	// 成功したらadding_iam_bindingsに進めて記録する。
+	projectID, err := s.creator.Create(ctx, token, projectRequest)
+	if err != nil {
+		return InitiateProjectCreationResponse{}, fmt.Errorf("create project: %w", err)
+	}
+	progress, err = progress.AdvancePastCreation(projectID)
+	if err != nil {
+		return InitiateProjectCreationResponse{}, err
+	}
+	if err := s.store.Update(ctx, progress); err != nil {
+		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation: %w", err)
+	}
 
 	// step:
 	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。
 
-	return InitiateProjectCreationResponse{ID: domain.ProjectCreationID(request.ID)}, nil
+	return InitiateProjectCreationResponse{ID: id}, nil
+}
+
+// getBreakGlass gets the break-glass groups at s.breakGlass's addresses with
+// their current members.
+func (s *ProjectCreationService) getBreakGlass(ctx context.Context) (domain.BreakGlass, error) {
+	ultimate, err := s.groups.Get(ctx, s.breakGlass.UltimateGroupEmail())
+	if err != nil {
+		return domain.BreakGlass{}, fmt.Errorf("get ultimate break-glass group: %w", err)
+	}
+	emergency, err := s.groups.Get(ctx, s.breakGlass.EmergencyGroupEmail())
+	if err != nil {
+		return domain.BreakGlass{}, fmt.Errorf("get emergency break-glass group: %w", err)
+	}
+	return domain.NewBreakGlass(s.breakGlass, ultimate, emergency)
+}
+
+// ProjectCreationProblemsError is returned when a request has known problems.
+type ProjectCreationProblemsError struct {
+	Problems []domain.ProjectCreationProblem
+}
+
+func (e *ProjectCreationProblemsError) Error() string {
+	descriptions := make([]string, len(e.Problems))
+	for i, p := range e.Problems {
+		descriptions[i] = p.Description()
+	}
+	return "project creation request has problems: " + strings.Join(descriptions, "; ")
 }
 
 // InitiateProjectCreationAsServiceAccount accepts a project creation request
