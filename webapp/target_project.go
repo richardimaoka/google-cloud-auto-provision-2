@@ -62,8 +62,8 @@ type jobStarter interface {
 
 // iamClient changes a project's IAM bindings, acting as the user who owns token.
 type iamClient interface {
-	AddBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Email, role domain.IAMRole) error
-	RemoveBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Email, role domain.IAMRole) error
+	AddBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Principal, role domain.IAMRole) error
+	RemoveBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Principal, role domain.IAMRole) error
 }
 
 // Environment variables that configFromEnvironment reads.
@@ -235,7 +235,7 @@ func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Contex
 		// domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
 		return domain.ProjectCreationProgress{}, fmt.Errorf("invalid IAM role: %w", err)
 	}
-	if err := s.iamClient.AddBinding(ctx, token, progress.ProjectID(), s.serviceAccount, projectIamAdminRole); err != nil {
+	if err := s.iamClient.AddBinding(ctx, token, progress.ProjectID(), domain.NewServiceAccountPrincipal(s.serviceAccount), projectIamAdminRole); err != nil {
 		return domain.ProjectCreationProgress{}, s.recordFailure(ctx, progress, fmt.Errorf("adding IAM binding for service account: %w", err))
 	}
 	return progress, nil
