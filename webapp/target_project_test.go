@@ -207,19 +207,20 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if creator.calls != 1 {
 			t.Errorf("creator.Create was called %d times, want 1", creator.calls)
 		}
-		// Recorded once at creating_project, then updated once after AdvancePastCreation.
-		if store.creates != 1 || store.updates != 1 {
-			t.Errorf("store.Create/Update were called %d/%d times, want 1/1", store.creates, store.updates)
+		// Recorded once at creating_project, then updated at
+		// adding_service_account_iam_bindings and adding_iam_bindings.
+		if store.creates != 1 || store.updates != 2 {
+			t.Errorf("store.Create/Update were called %d/%d times, want 1/2", store.creates, store.updates)
 		}
 
 		// Call counts alone don't show what was saved: check that the last write is
-		// AdvancePastCreation's result, with the creator's project ID and the submitted request.
+		// at adding_iam_bindings, with the creator's project ID and the submitted request.
 		progress, ok := store.recorded[domain.ProjectCreationID(request.ID)]
 		if !ok {
 			t.Fatalf("no progress recorded for %q", request.ID)
 		}
-		if progress.State() != domain.StateAddingServiceAccountIAMBindings || progress.Status() != domain.StatusInProgress {
-			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateAddingServiceAccountIAMBindings, domain.StatusInProgress)
+		if progress.State() != domain.StateAddingIAMBindings || progress.Status() != domain.StatusInProgress {
+			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateAddingIAMBindings, domain.StatusInProgress)
 		}
 		if progress.ProjectID() != "example-project" {
 			t.Errorf("recorded ProjectID = %q, want %q", progress.ProjectID(), "example-project")
@@ -325,20 +326,5 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if progress.State() != domain.StateCreatingProject || progress.Status() != domain.StatusError {
 			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateCreatingProject, domain.StatusError)
 		}
-	})
-}
-
-// TestCreateProjectAndGrantAutomationAccess is a scaffold:
-// createProjectAndGrantAutomationAccess is still a stub, so every case is
-// skipped until it has a real body to test.
-func TestCreateProjectAndGrantAutomationAccess(t *testing.T) {
-	t.Run("callerCredentialsでプロジェクトを作成し、自動化Service Accountへ権限を付与する", func(t *testing.T) {
-		t.Skip("createProjectAndGrantAutomationAccess is not implemented yet")
-	})
-	t.Run("プロジェクト作成が失敗したら権限付与はせずエラーを返す", func(t *testing.T) {
-		t.Skip("createProjectAndGrantAutomationAccess is not implemented yet")
-	})
-	t.Run("権限付与が失敗したらエラーを返す", func(t *testing.T) {
-		t.Skip("createProjectAndGrantAutomationAccess is not implemented yet")
 	})
 }

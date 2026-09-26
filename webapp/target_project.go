@@ -9,9 +9,7 @@ import (
 	"strings"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
-	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
 	"golang.org/x/oauth2"
-	"google.golang.org/api/option"
 )
 
 // InitiateProjectCreationRequest is the input for initiating target project
@@ -99,12 +97,9 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
-
-	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動する。
-	if err := s.jobStarter.Start(ctx, id); err != nil {
-		return InitiateProjectCreationResponse{}, s.recordFailure(ctx, progress, fmt.Errorf("start project setup job: %w", err))
+	if err := s.startSetupJob(ctx, progress); err != nil {
+		return InitiateProjectCreationResponse{}, err
 	}
-
 	return InitiateProjectCreationResponse{ID: id}, nil
 }
 
@@ -167,6 +162,8 @@ func (s *ProjectCreationService) createProject(ctx context.Context, id domain.Pr
 // addServiceAccountIAMBindings advances progress past creation with
 // projectID, recording adding_service_account_iam_bindings, then grants
 // s.serviceAccount access to the project.
+// The access only needs to cover what the worker does next, not lasting
+// privileges (see spec.md §2.3).
 func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Context, progress domain.ProjectCreationProgress, projectID string) (domain.ProjectCreationProgress, error) {
 	// adding_service_account_iam_bindingsとして記録する。
 	progress, err := progress.AdvancePastCreation(projectID)
@@ -188,6 +185,26 @@ func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Contex
 		return domain.ProjectCreationProgress{}, s.recordFailure(ctx, progress, fmt.Errorf("adding IAM binding for service account: %w", err))
 	}
 	return progress, nil
+}
+
+// startSetupJob advances progress to adding_iam_bindings, records it, and
+// starts the Cloud Run job that does the rest of the setup.
+func (s *ProjectCreationService) startSetupJob(ctx context.Context, progress domain.ProjectCreationProgress) error {
+	// adding_iam_bindingsとして記録する。
+	progress, err := progress.Advance()
+	if err != nil {
+		// progress.Advance()はエラーを返すことはないはずだが、万一発生したらprogressStoreは前段階のin_progressのままになる
+		return err
+	}
+	if err := s.progressStore.Update(ctx, progress); err != nil {
+		return fmt.Errorf("record project setup: %w", err)
+	}
+
+	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動し、失敗したらerrorとして記録する。
+	if err := s.jobStarter.Start(ctx, progress.ID()); err != nil {
+		return s.recordFailure(ctx, progress, fmt.Errorf("start project setup job: %w", err))
+	}
+	return nil
 }
 
 // recordFailure records progress as failed and returns err, joined with any
@@ -249,37 +266,6 @@ func (s *ProjectCreationService) InitiateProjectCreationAsServiceAccount(ctx con
 	//   (workerが自身でプロジェクトを作成するため、ここでの追加処理はない。)
 
 	return InitiateProjectCreationResponse{ID: domain.ProjectCreationID(request.ID)}, nil
-}
-
-// createProjectAndGrantAutomationAccess creates the Google Cloud project for
-// request and grants the automation service account access to it, both under
-// callerCredentials — the caller's own OAuth-delegated credentials. It is
-// only called from InitiateProjectCreationAsUser: worker.RunProjectCreation
-// creates the project itself, under the automation service account's own
-// credentials, when initiated via InitiateProjectCreationAsServiceAccount.
-//
-// The access granted here only needs to cover what worker.RunProjectCreation
-// does next (adding IAM bindings, setting up the PAM entitlement) — not
-// lasting privileges, since Phase 3 onward hands ongoing operation to the
-// service account's Workload Identity (see spec.md §2.3).
-//
-// This builds the googlecloud clients itself instead of taking one as a
-// parameter, so tests can only reach it via callerCredentials, faking the
-// HTTP transport rather than mocking in Go — undecided if that's worth
-// changing; revisit later.
-func (s *ProjectCreationService) createProjectAndGrantAutomationAccess(ctx context.Context, request domain.ProjectCreationRequest, callerCredentials ...option.ClientOption) (*googlecloud.Project, error) {
-	// step:
-	//   callerCredentialsでgooglecloud.NewProjectsClientを構成し、
-	//   request.DisplayNameでプロジェクトを作成(ProjectsClient.Create)。
-	//   失敗時は、問題と推奨解決法とともにエラーを返却(BigQueryにはこの関数からは記録しない。
-	//   呼び出し元のInitiateProjectCreationAsUserがまとめて記録する)。
-
-	// step:
-	//   同じcallerCredentialsでgooglecloud.NewIAMClientを構成し、作成したプロジェクトに対して
-	//   AUTOMATION_SA_EMAILへ必要なロールのIAM bindingを付与(IAMClient.AddBinding)。
-	//   失敗時は、問題と推奨解決法とともにエラーを返却。
-
-	return nil, nil
 }
 
 // GetProjectCreationProgressResponse is the result of looking up a project
