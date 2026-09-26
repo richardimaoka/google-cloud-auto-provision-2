@@ -4,6 +4,7 @@ package webapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -131,10 +132,16 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	}
 
 	// 利用者のtokenでプロジェクトを作成し、自動化Service Accountに権限を付与する。
-	// 成功したらadding_iam_bindingsに進めて記録する。
+	// 成功したらadding_iam_bindingsに進め、失敗したらerrorとして記録する。
 	projectID, err := s.creator.Create(ctx, token, projectRequest)
 	if err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("create project: %w", err)
+		err = fmt.Errorf("create project: %w", err)
+		if failed, failErr := progress.Fail(); failErr != nil {
+			err = errors.Join(err, failErr)
+		} else if updateErr := s.store.Update(ctx, failed); updateErr != nil {
+			err = errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
+		}
+		return InitiateProjectCreationResponse{}, err
 	}
 	progress, err = progress.AdvancePastCreation(projectID)
 	if err != nil {

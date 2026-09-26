@@ -136,7 +136,7 @@ func testProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreat
 // TestInitiateProjectCreationAsUser checks recording, project creation, and
 // access-granting happen in order, and a failure anywhere is returned.
 func TestInitiateProjectCreationAsUser(t *testing.T) {
-	t.Run("正常系: 記録・プロジェクト作成・権限付与・AdvancePastCreation・worker起動まで行う", func(t *testing.T) {
+	t.Run("正常系: 記録・プロジェクト作成・権限付与・AdvancePastCreationまで行う", func(t *testing.T) {
 		// All dependencies are fakes that succeed; the creator "creates" example-project.
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
@@ -186,7 +186,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		// TODO: check the worker start once it has a seam.
 	})
 
-	t.Run("recordProjectCreationRequestがエラーならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
+	t.Run("入力が不正ならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
 
@@ -241,7 +241,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		}
 	})
 
-	t.Run("createProjectAndGrantAutomationAccessがエラーならworkerを起動せずエラーを返す", func(t *testing.T) {
+	t.Run("プロジェクト作成が失敗したらerrorとして記録し、エラーを返す", func(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
 		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
@@ -261,6 +261,14 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		// other way.
 		if creator.calls != 1 {
 			t.Errorf("creator.Create was called %d times, want 1", creator.calls)
+		}
+		// The failure is recorded, so the request doesn't stay in_progress forever.
+		progress, ok := store.recorded[domain.ProjectCreationID(request.ID)]
+		if !ok {
+			t.Fatalf("no progress recorded for %q", request.ID)
+		}
+		if progress.State() != domain.StateCreatingProject || progress.Status() != domain.StatusError {
+			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateCreatingProject, domain.StatusError)
 		}
 	})
 }
