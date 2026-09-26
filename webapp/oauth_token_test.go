@@ -46,8 +46,8 @@ const (
 // parseClientConfig and localRedirectURL live in oauth.go, shared with the
 // real server.
 
-// loadConfig reads and parses clientSecretPath, failing the test if it can't.
-func loadConfig(t *testing.T) (*oauth2.Config, *url.URL) {
+// loadOAuthConfig reads and parses clientSecretPath, failing the test if it can't.
+func loadOAuthConfig(t *testing.T) (*oauth2.Config, *url.URL) {
 	t.Helper()
 
 	data, err := os.ReadFile(clientSecretPath)
@@ -64,7 +64,7 @@ func loadConfig(t *testing.T) (*oauth2.Config, *url.URL) {
 // TestObtainOAuthToken runs the interactive flow described above and saves
 // the resulting token to tokenPath.
 func TestObtainOAuthToken(t *testing.T) {
-	cfg, redirect := loadConfig(t)
+	cfg, redirect := loadOAuthConfig(t)
 
 	ln, err := net.Listen("tcp", redirect.Host)
 	if err != nil {
