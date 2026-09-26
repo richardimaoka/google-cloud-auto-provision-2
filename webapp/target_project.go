@@ -125,24 +125,30 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation request: %w", err)
 	}
 
-	// 利用者のtokenでプロジェクトを作成し、自動化Service Accountに権限を付与する。
-	// 成功したらadding_service_account_iam_bindingsに進め、失敗したらerrorとして記録する。
+	// 利用者のtokenでプロジェクトを作成し、失敗したらerrorとして記録する。
 	projectID, err := s.projectCreator.Create(ctx, token, projectRequest)
 	if err != nil {
 		err = fmt.Errorf("create project: %w", err)
 		if failed, failErr := progress.Fail(); failErr != nil {
+			// progress.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
 			err = errors.Join(err, failErr)
 		} else if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
 			err = errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
 		}
 		return InitiateProjectCreationResponse{}, err
 	}
+
+	// 自動化Service Accountに権限を付与する、失敗したらerrorとして記録する。
 	progress, err = progress.AdvancePastCreation(projectID)
 	if err != nil {
+		// progress.AdvancePastCreation()はエラーを返すことはないはずだが、万一発生したらprogressStoreは前段階のin_progressのままになる
 		return InitiateProjectCreationResponse{}, err
 	}
 	if err := s.progressStore.Update(ctx, progress); err != nil {
 		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation: %w", err)
+	}
+	if err := s.iamClient.AddBinding(ctx, projectID, "", ""); err != nil {
+		return InitiateProjectCreationResponse{}, fmt.Errorf("adding IAM binding for service account: %w", err)
 	}
 
 	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動する。
