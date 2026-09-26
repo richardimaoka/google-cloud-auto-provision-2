@@ -4,6 +4,7 @@ package webapp
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
@@ -91,10 +92,26 @@ func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Contex
 // InitiateProjectCreationAsServiceAccount lost out, and fold
 // recordProjectCreationRequest into the survivor.
 func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, token oauth2.TokenSource) (InitiateProjectCreationResponse, error) {
+	requester, err := domain.NewEmail(request.Requester)
+	if err != nil {
+		return InitiateProjectCreationResponse{}, fmt.Errorf("requester: %w", err)
+	}
+	developerGroupEmail, err := domain.NewEmail(request.DeveloperGroup)
+	if err != nil {
+		return InitiateProjectCreationResponse{}, fmt.Errorf("developer group: %w", err)
+	}
+	developerGroup, err := s.groups.Get(ctx, developerGroupEmail)
+	if err != nil {
+		return InitiateProjectCreationResponse{}, fmt.Errorf("get developer group: %w", err)
+	}
+	projectRequest, err := domain.NewProjectCreationRequest(request.DisplayName, requester, developerGroup)
+	if err != nil {
+		return InitiateProjectCreationResponse{}, err
+	}
+	_ = projectRequest // used by the steps below once they're implemented
+
 	// step:
-	//   request.DisplayName・Requester・DeveloperGroupからdomain.ProjectCreationRequestを構成し、
-	//   バリデーション(domain.NewEmail, domain.NewGoogleGroup, domain.NewProjectCreationRequest)。
-	//   判定に必要な情報(DeveloperGroupのメンバー、s.breakGlassのアドレスにあるbreak-glassグループのメンバー)はs.groupsで毎回取得。
+	//   s.breakGlassのアドレスにあるbreak-glassグループのメンバーをs.groupsで毎回取得。
 	//   判定はdomainの判定関数(I/Oなし、取得した情報とs.organizationを引数で受け取る)で行う。workerも同じ関数で再判定する。
 	//   問題があれば、記録せず、問題と推奨解決法とともにエラーを返却。
 

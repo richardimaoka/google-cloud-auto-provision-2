@@ -89,7 +89,7 @@ func TestHandleSubmit(t *testing.T) {
 	cfg := testOAuthConfig()
 	cfg.Endpoint.TokenURL = tokenServer.URL
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test+Project&email=a@example.com&group=g@example.com"))
+	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test+Project&email=a@example.com&group=developer-group@example.com"))
 	submitReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	submitW := httptest.NewRecorder()
 	Handler(cfg, NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(submitW, submitReq)
@@ -117,13 +117,15 @@ func TestHandleSubmit(t *testing.T) {
 	callbackReq := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state="+url.QueryEscape(state)+"&code=fake-code", nil)
 	callbackReq.AddCookie(flowCookie)
 	callbackW := httptest.NewRecorder()
-	Handler(cfg, NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(callbackW, callbackReq)
+	// The callback runs InitiateProjectCreationAsUser, so it needs working fakes.
+	projects := NewProjectCreationService(newFakeProgressStore(), &fakeProjectCreator{projectID: "example-project"}, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
+	Handler(cfg, projects).ServeHTTP(callbackW, callbackReq)
 
 	if callbackW.Code != http.StatusOK {
 		t.Fatalf("callback status = %d, body = %s", callbackW.Code, callbackW.Body.String())
 	}
 	body := callbackW.Body.String()
-	for _, want := range []string{"Test Project", "a@example.com", "g@example.com"} {
+	for _, want := range []string{"Test Project", "a@example.com", "developer-group@example.com"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body doesn't contain %q:\n%s", want, body)
 		}
