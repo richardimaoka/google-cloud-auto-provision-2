@@ -86,97 +86,122 @@ func NewProjectCreationService(store progressStore, creator projectCreator, grou
 // the caller's token, and hands the rest of the setup to a Cloud Run job.
 // Use it until the automation service account can create projects itself.
 func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, token oauth2.TokenSource) (InitiateProjectCreationResponse, error) {
-	// フォームの文字列からdomain.ProjectCreationRequestを構成する。
-	// DeveloperGroupのメンバーはs.googleGroupsで取得。不正な値ならエラーを返す。
-	requester, err := domain.NewEmail(request.Requester)
-	if err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("requester: %w", err)
-	}
-	developerGroupEmail, err := domain.NewEmail(request.DeveloperGroup)
-	if err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("developer group: %w", err)
-	}
-	developerGroup, err := s.googleGroups.LookUp(ctx, developerGroupEmail)
-	if err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("look up developer group: %w", err)
-	}
-	projectRequest, err := domain.NewProjectCreationRequest(request.DisplayName, requester, developerGroup)
+	projectRequest, err := s.checkPrerequisites(ctx, request)
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
-
-	// break-glassグループの現在のメンバーを取得し、domainの判定関数で問題を探す。
-	// 問題があれば記録せずに返す(workerも同じ関数で再判定する)。
-	breakGlass, err := s.getBreakGlass(ctx)
-	if err != nil {
-		return InitiateProjectCreationResponse{}, err
-	}
-	if problems := domain.FindProjectCreationProblems(projectRequest, s.organization, breakGlass); len(problems) > 0 {
-		return InitiateProjectCreationResponse{}, &ProjectCreationProblemsError{Problems: problems}
-	}
-
-	// creating_projectとして記録する。
-	// 記録済みのIDならエラーを返し、プロジェクトは作らない。
 	id := domain.ProjectCreationID(request.ID)
-	progress, err := domain.NewProjectCreationProgress(id, 1, projectRequest, domain.StateCreatingProject, domain.StatusInProgress, "")
+	progress, projectID, err := s.createProject(ctx, id, projectRequest, token)
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
-	if _, err := s.progressStore.Create(ctx, progress); err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation request: %w", err)
-	}
-
-	// 利用者のtokenでプロジェクトを作成し、失敗したらerrorとして記録する。
-	projectID, err := s.projectCreator.Create(ctx, token, projectRequest)
+	progress, err = s.addServiceAccountIAMBindings(ctx, progress, projectID)
 	if err != nil {
-		err = fmt.Errorf("create project: %w", err)
-		if failed, failErr := progress.Fail(); failErr != nil {
-			// progress.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
-			err = errors.Join(err, failErr)
-		} else if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
-			err = errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
-		}
-		return InitiateProjectCreationResponse{}, err
-	}
-
-	// 自動化Service Accountに権限を付与する、失敗したらerrorとして記録する。
-	progress, err = progress.AdvancePastCreation(projectID)
-	if err != nil {
-		// progress.AdvancePastCreation()はエラーを返すことはないはずだが、万一発生したらprogressStoreは前段階のin_progressのままになる
-		return InitiateProjectCreationResponse{}, err
-	}
-	if err := s.progressStore.Update(ctx, progress); err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation: %w", err)
-	}
-	projectIamAdminRole, err := domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")
-	if err != nil {
-		// domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
-		return InitiateProjectCreationResponse{}, fmt.Errorf("invalid IAM role: %w", err)
-	}
-	if err := s.iamClient.AddBinding(ctx, projectID, s.serviceAccount, projectIamAdminRole); err != nil {
-		err = fmt.Errorf("adding IAM binding for service account: %w", err)
-		if failed, failErr := progress.Fail(); failErr != nil {
-			// progress.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
-			err = errors.Join(err, failErr)
-		} else if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
-			err = errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
-		}
 		return InitiateProjectCreationResponse{}, err
 	}
 
 	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動する。
 	if err := s.jobStarter.Start(ctx, id); err != nil {
-		err = fmt.Errorf("start project setup job: %w", err)
-		if failed, failErr := progress.Fail(); failErr != nil {
-			// progress.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
-			err = errors.Join(err, failErr)
-		} else if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
-			err = errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
-		}
-		return InitiateProjectCreationResponse{}, err
+		return InitiateProjectCreationResponse{}, s.recordFailure(ctx, progress, fmt.Errorf("start project setup job: %w", err))
 	}
 
 	return InitiateProjectCreationResponse{ID: id}, nil
+}
+
+// checkPrerequisites builds a domain.ProjectCreationRequest from request and
+// checks it for problems. Nothing is recorded.
+func (s *ProjectCreationService) checkPrerequisites(ctx context.Context, request InitiateProjectCreationRequest) (domain.ProjectCreationRequest, error) {
+	// フォームの文字列からdomain.ProjectCreationRequestを構成する。
+	// DeveloperGroupのメンバーはs.googleGroupsで取得。不正な値ならエラーを返す。
+	requester, err := domain.NewEmail(request.Requester)
+	if err != nil {
+		return domain.ProjectCreationRequest{}, fmt.Errorf("requester: %w", err)
+	}
+	developerGroupEmail, err := domain.NewEmail(request.DeveloperGroup)
+	if err != nil {
+		return domain.ProjectCreationRequest{}, fmt.Errorf("developer group: %w", err)
+	}
+	developerGroup, err := s.googleGroups.LookUp(ctx, developerGroupEmail)
+	if err != nil {
+		return domain.ProjectCreationRequest{}, fmt.Errorf("look up developer group: %w", err)
+	}
+	projectRequest, err := domain.NewProjectCreationRequest(request.DisplayName, requester, developerGroup)
+	if err != nil {
+		return domain.ProjectCreationRequest{}, err
+	}
+
+	// break-glassグループの現在のメンバーを取得し、domainの判定関数で問題を探す。
+	// workerも同じ関数で再判定する。
+	breakGlass, err := s.getBreakGlass(ctx)
+	if err != nil {
+		return domain.ProjectCreationRequest{}, err
+	}
+	if problems := domain.FindProjectCreationProblems(projectRequest, s.organization, breakGlass); len(problems) > 0 {
+		return domain.ProjectCreationRequest{}, &ProjectCreationProblemsError{Problems: problems}
+	}
+	return projectRequest, nil
+}
+
+// createProject records request as creating_project, then creates the
+// project with token. It returns the progress, still at creating_project, and
+// the new project's ID.
+func (s *ProjectCreationService) createProject(ctx context.Context, id domain.ProjectCreationID, request domain.ProjectCreationRequest, token oauth2.TokenSource) (domain.ProjectCreationProgress, string, error) {
+	// creating_projectとして記録する。
+	// 記録済みのIDならエラーを返し、プロジェクトは作らない。
+	progress, err := domain.NewProjectCreationProgress(id, 1, request, domain.StateCreatingProject, domain.StatusInProgress, "")
+	if err != nil {
+		return domain.ProjectCreationProgress{}, "", err
+	}
+	if _, err := s.progressStore.Create(ctx, progress); err != nil {
+		return domain.ProjectCreationProgress{}, "", fmt.Errorf("record project creation request: %w", err)
+	}
+
+	// 利用者のtokenでプロジェクトを作成し、失敗したらerrorとして記録する。
+	projectID, err := s.projectCreator.Create(ctx, token, request)
+	if err != nil {
+		return domain.ProjectCreationProgress{}, "", s.recordFailure(ctx, progress, fmt.Errorf("create project: %w", err))
+	}
+	return progress, projectID, nil
+}
+
+// addServiceAccountIAMBindings advances progress past creation with
+// projectID, recording adding_service_account_iam_bindings, then grants
+// s.serviceAccount access to the project.
+func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Context, progress domain.ProjectCreationProgress, projectID string) (domain.ProjectCreationProgress, error) {
+	// adding_service_account_iam_bindingsとして記録する。
+	progress, err := progress.AdvancePastCreation(projectID)
+	if err != nil {
+		// progress.AdvancePastCreation()はエラーを返すことはないはずだが、万一発生したらprogressStoreは前段階のin_progressのままになる
+		return domain.ProjectCreationProgress{}, err
+	}
+	if err := s.progressStore.Update(ctx, progress); err != nil {
+		return domain.ProjectCreationProgress{}, fmt.Errorf("record project creation: %w", err)
+	}
+
+	// 自動化Service Accountに権限を付与する、失敗したらerrorとして記録する。
+	projectIamAdminRole, err := domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")
+	if err != nil {
+		// domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
+		return domain.ProjectCreationProgress{}, fmt.Errorf("invalid IAM role: %w", err)
+	}
+	if err := s.iamClient.AddBinding(ctx, progress.ProjectID(), s.serviceAccount, projectIamAdminRole); err != nil {
+		return domain.ProjectCreationProgress{}, s.recordFailure(ctx, progress, fmt.Errorf("adding IAM binding for service account: %w", err))
+	}
+	return progress, nil
+}
+
+// recordFailure records progress as failed and returns err, joined with any
+// error from recording it.
+func (s *ProjectCreationService) recordFailure(ctx context.Context, progress domain.ProjectCreationProgress, err error) error {
+	failed, failErr := progress.Fail()
+	if failErr != nil {
+		// progress.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
+		return errors.Join(err, failErr)
+	}
+	if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
+		return errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
+	}
+	return err
 }
 
 // getBreakGlass looks up the break-glass groups at s.breakGlass's addresses with
