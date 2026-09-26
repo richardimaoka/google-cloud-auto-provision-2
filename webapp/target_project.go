@@ -4,7 +4,6 @@ package webapp
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
@@ -35,17 +34,21 @@ type InitiateProjectCreationResponse struct {
 	ID domain.ProjectCreationID
 }
 
+// projectCreationStore records ProjectCreationProgress.
+type projectCreationStore interface {
+	// Create returns alreadyRecorded=true, recording nothing, if progress.ID exists.
+	Create(ctx context.Context, progress domain.ProjectCreationProgress) (alreadyRecorded bool, err error)
+	Update(ctx context.Context, progress domain.ProjectCreationProgress) error
+}
+
 // ProjectCreationService is what the web application calls to start and
 // follow project provisioning. Its methods used to be bare functions;
-// making them methods gives dependencies — a BigQuery client, a Cloud Run
-// Jobs trigger, neither built yet — a place to be injected through
-// NewProjectCreationService instead of each method constructing its own.
+// making them methods gives dependencies — a projectCreationStore, a Cloud Run
+// Jobs trigger — a place to be injected through NewProjectCreationService
+// instead of each method constructing its own.
 type ProjectCreationService struct {
-	// bigQuery is always nil for now: NewProjectCreationService doesn't
-	// accept one yet. recordProjectCreationRequest calls bigQuery.Insert,
-	// which is itself still a stub (always succeeds) — so this field exists
-	// to show the call shape, not to actually persist anything yet.
-	bigQuery *googlecloud.BigQueryClient
+	// store is nil outside tests until a real projectCreationStore exists.
+	store projectCreationStore
 }
 
 // NewProjectCreationService returns a ProjectCreationService. It takes no
@@ -72,19 +75,11 @@ func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Contex
 	//   (ProjectCreationProgressはdomain.ProjectCreationRequestを必須で持つため、構成前には記録できない)
 
 	// step:
-	//   State = "creating_project", status = "in_progress"の形で記録。
-	//   request.IDが記録済みなら重複申請なので、記録も後続処理の起動もせず、記録済みのIDで成功を返却
-	//   (まだ未実装。下のInsert呼び出しは常に成功するのでこの分岐は効かない)。
-	//   ただし記録済みのrequestと中身が違う場合はエラーを返却。
-	//
-	// projectID/datasetID below are placeholders (not sourced from anywhere
-	// real yet) — this just shows the call shape.
-	if err := s.bigQuery.Insert(ctx, "", "", googlecloud.ProjectCreationRecord{
-		ID:          string(request.ID),
-		DisplayName: request.DisplayName,
-	}); err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation request: %w", err)
-	}
+	//   State = "creating_project", status = "in_progress"のProjectCreationProgressを
+	//   s.store.Createで記録。エラーなら返却。
+	//   alreadyRecordedなら重複申請なので、後続処理の起動もせず、記録済みのIDで成功を返却
+	//   (呼び出し元が後続処理をしないよう、その旨を返す必要がある。返し方は未定)。
+	//   ただし記録済みのrequestと中身が違う場合はエラーを返却(storeから記録済みの内容を得る方法は未定)。
 
 	return InitiateProjectCreationResponse{ID: request.ID}, nil
 }
@@ -111,7 +106,7 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	// step:
 	//   callerCredentialsでcreateProjectAndGrantAutomationAccessを呼ぶ。
 	//   成功したら、作成したプロジェクトのIDを渡してProjectCreationProgress.AdvancePastCreationを呼び、
-	//   その結果をBigQueryに記録(State = "adding_iam_bindings", status = "in_progress"になる)。
+	//   その結果をs.store.Updateで記録(State = "adding_iam_bindings", status = "in_progress"になる)。
 
 	// step:
 	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。
