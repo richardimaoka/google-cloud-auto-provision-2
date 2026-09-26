@@ -59,9 +59,10 @@ type jobStarter interface {
 	Start(ctx context.Context, id domain.ProjectCreationID) error
 }
 
+// iamClient changes a project's IAM bindings, acting as the user who owns token.
 type iamClient interface {
-	AddBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error
-	RemoveBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error
+	AddBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Email, role domain.IAMRole) error
+	RemoveBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Email, role domain.IAMRole) error
 }
 
 // ProjectCreationService starts and follows project provisioning.
@@ -93,7 +94,7 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
-	progress, err = s.addServiceAccountIAMBindings(ctx, progress, projectID)
+	progress, err = s.addServiceAccountIAMBindings(ctx, progress, projectID, token)
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
@@ -164,7 +165,7 @@ func (s *ProjectCreationService) createProject(ctx context.Context, id domain.Pr
 // s.serviceAccount access to the project.
 // The access only needs to cover what the worker does next, not lasting
 // privileges (see spec.md §2.3).
-func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Context, progress domain.ProjectCreationProgress, projectID string) (domain.ProjectCreationProgress, error) {
+func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Context, progress domain.ProjectCreationProgress, projectID string, token oauth2.TokenSource) (domain.ProjectCreationProgress, error) {
 	// adding_service_account_iam_bindingsとして記録する。
 	progress, err := progress.AdvancePastCreation(projectID)
 	if err != nil {
@@ -181,7 +182,7 @@ func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Contex
 		// domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
 		return domain.ProjectCreationProgress{}, fmt.Errorf("invalid IAM role: %w", err)
 	}
-	if err := s.iamClient.AddBinding(ctx, progress.ProjectID(), s.serviceAccount, projectIamAdminRole); err != nil {
+	if err := s.iamClient.AddBinding(ctx, token, progress.ProjectID(), s.serviceAccount, projectIamAdminRole); err != nil {
 		return domain.ProjectCreationProgress{}, s.recordFailure(ctx, progress, fmt.Errorf("adding IAM binding for service account: %w", err))
 	}
 	return progress, nil

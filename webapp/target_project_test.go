@@ -117,7 +117,7 @@ type fakeIAMClient struct {
 	added, removed []iamBinding
 }
 
-func (f *fakeIAMClient) AddBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error {
+func (f *fakeIAMClient) AddBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Email, role domain.IAMRole) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -125,7 +125,7 @@ func (f *fakeIAMClient) AddBinding(ctx context.Context, projectID string, princi
 	return nil
 }
 
-func (f *fakeIAMClient) RemoveBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error {
+func (f *fakeIAMClient) RemoveBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Email, role domain.IAMRole) error {
 	f.removed = append(f.removed, iamBinding{projectID, principal, role})
 	return nil
 }
