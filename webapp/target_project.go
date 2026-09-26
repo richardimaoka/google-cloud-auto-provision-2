@@ -56,18 +56,24 @@ type groupLookup interface {
 	Get(ctx context.Context, email domain.Email) (domain.GoogleGroup, error)
 }
 
+// jobStarter starts the Cloud Run job that continues a project creation.
+type jobStarter interface {
+	Start(ctx context.Context, id domain.ProjectCreationID) error
+}
+
 // ProjectCreationService starts and follows project provisioning.
 type ProjectCreationService struct {
 	store   progressStore
 	creator projectCreator
 	groups  groupLookup
+	jobs    jobStarter
 
 	organization domain.Organization
 	breakGlass   domain.BreakGlassRequirement
 }
 
-func NewProjectCreationService(store progressStore, creator projectCreator, groups groupLookup, organization domain.Organization, breakGlass domain.BreakGlassRequirement) *ProjectCreationService {
-	return &ProjectCreationService{store: store, creator: creator, groups: groups, organization: organization, breakGlass: breakGlass}
+func NewProjectCreationService(store progressStore, creator projectCreator, groups groupLookup, jobs jobStarter, organization domain.Organization, breakGlass domain.BreakGlassRequirement) *ProjectCreationService {
+	return &ProjectCreationService{store: store, creator: creator, groups: groups, jobs: jobs, organization: organization, breakGlass: breakGlass}
 }
 
 // recordProjectCreationRequest records progress. If progress.ID is already
@@ -151,8 +157,10 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation: %w", err)
 	}
 
-	// step:
-	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。
+	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動する。
+	if err := s.jobs.Start(ctx, id); err != nil {
+		return InitiateProjectCreationResponse{}, fmt.Errorf("start project creation job: %w", err)
+	}
 
 	return InitiateProjectCreationResponse{ID: id}, nil
 }

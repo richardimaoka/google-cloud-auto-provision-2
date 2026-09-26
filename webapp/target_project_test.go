@@ -88,6 +88,16 @@ func newFakeGroupLookup(t *testing.T) *fakeGroupLookup {
 	return &fakeGroupLookup{groups: map[string]domain.GoogleGroup{"developer-group@example.com": group}}
 }
 
+// fakeJobStarter records the IDs it was asked to start.
+type fakeJobStarter struct {
+	started []domain.ProjectCreationID
+}
+
+func (f *fakeJobStarter) Start(ctx context.Context, id domain.ProjectCreationID) error {
+	f.started = append(f.started, id)
+	return nil
+}
+
 // testOrganization returns an organization whose domain is example.com.
 func testOrganization(t *testing.T) domain.Organization {
 	t.Helper()
@@ -136,11 +146,12 @@ func testProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreat
 // TestInitiateProjectCreationAsUser checks recording, project creation, and
 // access-granting happen in order, and a failure anywhere is returned.
 func TestInitiateProjectCreationAsUser(t *testing.T) {
-	t.Run("正常系: 記録・プロジェクト作成・権限付与・AdvancePastCreationまで行う", func(t *testing.T) {
+	t.Run("正常系: 記録・プロジェクト作成・権限付与・AdvancePastCreation・worker起動まで行う", func(t *testing.T) {
 		// All dependencies are fakes that succeed; the creator "creates" example-project.
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
+		jobs := &fakeJobStarter{}
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
 
 		// A valid request whose developer group has enough members in example.com.
 		request := InitiateProjectCreationRequest{
@@ -183,12 +194,16 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if progress.Request().DisplayName != request.DisplayName {
 			t.Errorf("recorded DisplayName = %q, want %q", progress.Request().DisplayName, request.DisplayName)
 		}
-		// TODO: check the worker start once it has a seam.
+		// The job continues this request, so it must be started with its ID.
+		if len(jobs.started) != 1 || jobs.started[0] != domain.ProjectCreationID(request.ID) {
+			t.Errorf("jobs started = %q, want [%q]", jobs.started, request.ID)
+		}
 	})
 
 	t.Run("入力が不正ならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
+		jobs := &fakeJobStarter{}
+		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGroupLookup(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -205,13 +220,17 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if creator.calls != 0 {
 			t.Errorf("creator.Create was called %d times, want 0", creator.calls)
 		}
+		if len(jobs.started) != 0 {
+			t.Errorf("jobs started = %q, want none", jobs.started)
+		}
 	})
 
 	t.Run("記録済みのIDで再試行すると二重にプロジェクトを作成しない", func(t *testing.T) {
 		store := newFakeProgressStore()
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
+		jobs := &fakeJobStarter{}
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -239,12 +258,16 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if creator.calls != 0 {
 			t.Errorf("creator.Create was called %d times, want 0", creator.calls)
 		}
+		if len(jobs.started) != 0 {
+			t.Errorf("jobs started = %q, want none", jobs.started)
+		}
 	})
 
 	t.Run("プロジェクト作成が失敗したらerrorとして記録し、エラーを返す", func(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
+		jobs := &fakeJobStarter{}
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",
@@ -262,6 +285,9 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if creator.calls != 1 {
 			t.Errorf("creator.Create was called %d times, want 1", creator.calls)
 		}
+		if len(jobs.started) != 0 {
+			t.Errorf("jobs started = %q, want none", jobs.started)
+		}
 		// The failure is recorded, so the request doesn't stay in_progress forever.
 		progress, ok := store.recorded[domain.ProjectCreationID(request.ID)]
 		if !ok {
@@ -278,7 +304,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 func TestRecordProjectCreationRequest_StoreFails(t *testing.T) {
 	store := newFakeProgressStore()
 	store.err = errors.New("create failed")
-	svc := NewProjectCreationService(store, nil, nil, testOrganization(t), testBreakGlassRequirement(t))
+	svc := NewProjectCreationService(store, nil, nil, nil, testOrganization(t), testBreakGlassRequirement(t))
 
 	_, err := svc.recordProjectCreationRequest(context.Background(), testProgress(t, "request-1"))
 	if err == nil {
