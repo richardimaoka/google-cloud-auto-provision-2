@@ -64,7 +64,7 @@ type fakeGoogleGroups struct {
 	groups map[string]domain.GoogleGroup
 }
 
-func (f *fakeGoogleGroups) LookUp(ctx context.Context, email domain.Email) (domain.GoogleGroup, error) {
+func (f *fakeGoogleGroups) LookUp(ctx context.Context, token oauth2.TokenSource, email domain.Email) (domain.GoogleGroup, error) {
 	if g, ok := f.groups[email.String()]; ok {
 		return g, nil
 	}

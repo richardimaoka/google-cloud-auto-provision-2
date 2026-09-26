@@ -50,9 +50,9 @@ type projectCreator interface {
 	Create(ctx context.Context, token oauth2.TokenSource, request domain.ProjectCreationRequest) (projectID string, err error)
 }
 
-// googleGroups looks up Google Groups with their members.
+// googleGroups looks up Google Groups with their members, acting as the user who owns token.
 type googleGroups interface {
-	LookUp(ctx context.Context, email domain.Email) (domain.GoogleGroup, error)
+	LookUp(ctx context.Context, token oauth2.TokenSource, email domain.Email) (domain.GoogleGroup, error)
 }
 
 // jobStarter starts the Cloud Run job that continues a project creation.
@@ -99,8 +99,8 @@ func NewProjectCreationService(ctx context.Context) (*ProjectCreationService, er
 	if err != nil {
 		return nil, err
 	}
-	// TODO: build the Google Cloud-backed dependencies once they exist.
-	return newProjectCreationService(cfg, nil, nil, nil, nil, nil), nil
+	// TODO: build the other Google Cloud-backed dependencies once they exist.
+	return newProjectCreationService(cfg, nil, nil, &cloudIdentityGroups{}, nil, nil), nil
 }
 
 // configFromEnvironment reads config from the environment.
@@ -138,7 +138,7 @@ func newProjectCreationService(cfg config, store progressStore, creator projectC
 // the caller's token, and hands the rest of the setup to a Cloud Run job.
 // Use it until the automation service account can create projects itself.
 func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, token oauth2.TokenSource) (InitiateProjectCreationResponse, error) {
-	projectRequest, err := s.checkPrerequisites(ctx, request)
+	projectRequest, err := s.checkPrerequisites(ctx, request, token)
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
@@ -159,7 +159,7 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 
 // checkPrerequisites builds a domain.ProjectCreationRequest from request and
 // checks it for problems. Nothing is recorded.
-func (s *ProjectCreationService) checkPrerequisites(ctx context.Context, request InitiateProjectCreationRequest) (domain.ProjectCreationRequest, error) {
+func (s *ProjectCreationService) checkPrerequisites(ctx context.Context, request InitiateProjectCreationRequest, token oauth2.TokenSource) (domain.ProjectCreationRequest, error) {
 	// フォームの文字列からdomain.ProjectCreationRequestを構成する。
 	// DeveloperGroupのメンバーはs.googleGroupsで取得。不正な値ならエラーを返す。
 	requester, err := domain.NewEmail(request.Requester)
@@ -170,7 +170,7 @@ func (s *ProjectCreationService) checkPrerequisites(ctx context.Context, request
 	if err != nil {
 		return domain.ProjectCreationRequest{}, fmt.Errorf("developer group: %w", err)
 	}
-	developerGroup, err := s.googleGroups.LookUp(ctx, developerGroupEmail)
+	developerGroup, err := s.googleGroups.LookUp(ctx, token, developerGroupEmail)
 	if err != nil {
 		return domain.ProjectCreationRequest{}, fmt.Errorf("look up developer group: %w", err)
 	}
@@ -181,7 +181,7 @@ func (s *ProjectCreationService) checkPrerequisites(ctx context.Context, request
 
 	// break-glassグループの現在のメンバーを取得し、domainの判定関数で問題を探す。
 	// workerも同じ関数で再判定する。
-	breakGlass, err := s.getBreakGlass(ctx)
+	breakGlass, err := s.getBreakGlass(ctx, token)
 	if err != nil {
 		return domain.ProjectCreationRequest{}, err
 	}
@@ -277,12 +277,12 @@ func (s *ProjectCreationService) recordFailure(ctx context.Context, progress dom
 
 // getBreakGlass looks up the break-glass groups at s.breakGlass's addresses with
 // their current members.
-func (s *ProjectCreationService) getBreakGlass(ctx context.Context) (domain.BreakGlass, error) {
-	ultimate, err := s.googleGroups.LookUp(ctx, s.breakGlass.UltimateGroupEmail())
+func (s *ProjectCreationService) getBreakGlass(ctx context.Context, token oauth2.TokenSource) (domain.BreakGlass, error) {
+	ultimate, err := s.googleGroups.LookUp(ctx, token, s.breakGlass.UltimateGroupEmail())
 	if err != nil {
 		return domain.BreakGlass{}, fmt.Errorf("look up ultimate break-glass group: %w", err)
 	}
-	emergency, err := s.googleGroups.LookUp(ctx, s.breakGlass.EmergencyGroupEmail())
+	emergency, err := s.googleGroups.LookUp(ctx, token, s.breakGlass.EmergencyGroupEmail())
 	if err != nil {
 		return domain.BreakGlass{}, fmt.Errorf("look up emergency break-glass group: %w", err)
 	}
