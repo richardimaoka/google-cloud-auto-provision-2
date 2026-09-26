@@ -3,12 +3,10 @@ package webapp
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
-	"google.golang.org/api/option"
+	"golang.org/x/oauth2"
 )
 
 // fakeProgressStore is an in-memory progressStore. Set err to
@@ -45,6 +43,21 @@ func (f *fakeProgressStore) Update(ctx context.Context, progress domain.ProjectC
 	return nil
 }
 
+// fakeProjectCreator is a projectCreator that returns projectID, or err if set.
+type fakeProjectCreator struct {
+	projectID string
+	err       error
+	calls     int
+}
+
+func (f *fakeProjectCreator) Create(ctx context.Context, token oauth2.TokenSource, request domain.ProjectCreationRequest) (string, error) {
+	f.calls++
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.projectID, nil
+}
+
 // recordedProgress returns a ProjectCreationProgress to pre-populate a
 // fakeProgressStore with, as if an earlier request had been recorded.
 func recordedProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreationProgress {
@@ -72,18 +85,12 @@ func recordedProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectC
 // access-granting happen in order, and a failure anywhere is returned.
 func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("正常系: 記録・プロジェクト作成・権限付与・AdvancePastCreation・worker起動まで行う", func(t *testing.T) {
-		t.Skip("blocked: no seam yet to fake project creation/access granting (createProjectAndGrantAutomationAccess) or the Cloud Run Jobs start")
+		t.Skip("blocked: no seam yet to fake the Cloud Run Jobs start")
 	})
 
 	t.Run("recordProjectCreationRequestがエラーならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
-		// Validation should reject this before it ever reaches Google Cloud.
-		mux := http.NewServeMux()
-		mux.HandleFunc("POST /v3/projects", func(w http.ResponseWriter, r *http.Request) {
-			t.Error("googlecloud.ProjectsClient.Create was called despite an invalid request")
-			w.WriteHeader(http.StatusInternalServerError)
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
+		creator := &fakeProjectCreator{projectID: "example-project"}
+		svc := &ProjectCreationService{store: newFakeProgressStore(), creator: creator}
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -91,26 +98,20 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "not-an-email",
 			DeveloperGroup: "developer-group@example.com",
 		}
-		svc := NewProjectCreationService()
-		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request,
-			option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
 		if err == nil {
 			t.Error("InitiateProjectCreationAsUser(invalid requester email) = nil error, want an error")
+		}
+		if creator.calls != 0 {
+			t.Errorf("creator.Create was called %d times, want 0", creator.calls)
 		}
 	})
 
 	t.Run("記録済みのIDで再試行すると二重にプロジェクトを作成しない", func(t *testing.T) {
-		mux := http.NewServeMux()
-		mux.HandleFunc("POST /v3/projects", func(w http.ResponseWriter, r *http.Request) {
-			t.Error("googlecloud.ProjectsClient.Create was called for an already recorded ID")
-			w.WriteHeader(http.StatusInternalServerError)
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
-
 		store := newFakeProgressStore()
 		store.recorded["request-retried"] = recordedProgress(t, "request-retried")
-		svc := &ProjectCreationService{store: store}
+		creator := &fakeProjectCreator{projectID: "example-project"}
+		svc := &ProjectCreationService{store: store, creator: creator}
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -118,8 +119,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "requester@example.com",
 			DeveloperGroup: "developer-group@example.com",
 		}
-		got, err := svc.InitiateProjectCreationAsUser(context.Background(), request,
-			option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+		got, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
 		if err != nil {
 			t.Fatalf("InitiateProjectCreationAsUser(already recorded ID) = %v, want nil error", err)
 		}
@@ -134,17 +134,15 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if store.updates != 0 {
 			t.Errorf("store.Update was called %d times, want 0", store.updates)
 		}
+		if creator.calls != 0 {
+			t.Errorf("creator.Create was called %d times, want 0", creator.calls)
+		}
 	})
 
 	t.Run("createProjectAndGrantAutomationAccessがエラーならworkerを起動せずエラーを返す", func(t *testing.T) {
-		calls := 0
-		mux := http.NewServeMux()
-		mux.HandleFunc("POST /v3/projects", func(w http.ResponseWriter, r *http.Request) {
-			calls++
-			http.Error(w, `{"error":{"code":403,"message":"permission denied","status":"PERMISSION_DENIED"}}`, http.StatusForbidden)
-		})
-		srv := httptest.NewServer(mux)
-		defer srv.Close()
+		store := newFakeProgressStore()
+		creator := &fakeProjectCreator{err: errors.New("permission denied")}
+		svc := &ProjectCreationService{store: store, creator: creator}
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",
@@ -152,16 +150,14 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "requester@example.com",
 			DeveloperGroup: "developer-group@example.com",
 		}
-		svc := NewProjectCreationService()
-		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request,
-			option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
 		if err == nil {
 			t.Error("InitiateProjectCreationAsUser(project creation fails) = nil error, want an error")
 		}
-		// Confirms the error came from this fake server, not from ignoring
-		// callerCredentials and failing some other way.
-		if calls != 1 {
-			t.Errorf("fake create-project endpoint was called %d times, want 1", calls)
+		// Confirms the error came from the creator, not from failing some
+		// other way.
+		if creator.calls != 1 {
+			t.Errorf("creator.Create was called %d times, want 1", creator.calls)
 		}
 	})
 }

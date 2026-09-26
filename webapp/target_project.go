@@ -7,6 +7,7 @@ import (
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
+	"golang.org/x/oauth2"
 	"google.golang.org/api/option"
 )
 
@@ -44,7 +45,7 @@ type progressStore interface {
 // projectCreator creates a project and grants the automation service account access to it.
 type projectCreator interface {
 	// Create acts as the user who owns token and returns the new project's ID.
-	Create(ctx context.Context, token string, request domain.ProjectCreationRequest) (projectID string, err error)
+	Create(ctx context.Context, token oauth2.TokenSource, request domain.ProjectCreationRequest) (projectID string, err error)
 }
 
 // ProjectCreationService is what the web application calls to start and
@@ -95,24 +96,22 @@ func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Contex
 // InitiateProjectCreationAsUser accepts a project creation request under the
 // caller's own Google account and returns once it is recorded. It creates
 // the project and grants the automation service account access to it under
-// callerCredentials — the caller's own OAuth-delegated credentials, from a
-// server-side OAuth session (not yet implemented, see
-// webapp/oauth-client.md) — before handing the rest of the initial setup to
-// a Cloud Run job (see package worker), whose progress is read with
-// GetProjectCreationProgress. The returned error means the request was not
-// accepted.
+// token — the caller's own OAuth-delegated credentials — before handing the
+// rest of the initial setup to a Cloud Run job (see package worker), whose
+// progress is read with GetProjectCreationProgress. The returned error means
+// the request was not accepted.
 //
 // Use this while the automation service account has no organization-level
 // project creator permission. Once it's granted (or deliberately withheld
 // for good), delete whichever of this function and
 // InitiateProjectCreationAsServiceAccount lost out, and fold
 // recordProjectCreationRequest into the survivor.
-func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, callerCredentials ...option.ClientOption) (InitiateProjectCreationResponse, error) {
+func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, token oauth2.TokenSource) (InitiateProjectCreationResponse, error) {
 	// step:
 	//   recordProjectCreationRequestを呼ぶ。エラーならそのまま返却。
 
 	// step:
-	//   callerCredentialsでcreateProjectAndGrantAutomationAccessを呼ぶ。
+	//   tokenでs.creator.Createを呼ぶ。エラーならworkerを起動せず返却。
 	//   成功したら、作成したプロジェクトのIDを渡してProjectCreationProgress.AdvancePastCreationを呼び、
 	//   その結果をs.store.Updateで記録(State = "adding_iam_bindings", status = "in_progress"になる)。
 

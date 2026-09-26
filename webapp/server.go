@@ -12,7 +12,6 @@ import (
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"golang.org/x/oauth2"
-	"google.golang.org/api/option"
 )
 
 //go:embed templates/*.html
@@ -174,8 +173,7 @@ func handleOAuthCallback(cfg *oauth2.Config, projects *ProjectCreationService) h
 		}
 		// cfg.TokenSource refreshes token itself if it goes stale during the
 		// initial setup, unlike a bare oauth2.StaticTokenSource(token).
-		callerCredentials := option.WithTokenSource(cfg.TokenSource(r.Context(), token))
-		resp, err := projects.InitiateProjectCreationAsUser(r.Context(), request, callerCredentials)
+		resp, err := projects.InitiateProjectCreationAsUser(r.Context(), request, cfg.TokenSource(r.Context(), token))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
