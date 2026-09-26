@@ -41,14 +41,22 @@ type progressStore interface {
 	Update(ctx context.Context, progress domain.ProjectCreationProgress) error
 }
 
+// projectCreator creates a project and grants the automation service account access to it.
+type projectCreator interface {
+	// Create acts as the user who owns token and returns the new project's ID.
+	Create(ctx context.Context, token string, request domain.ProjectCreationRequest) (projectID string, err error)
+}
+
 // ProjectCreationService is what the web application calls to start and
 // follow project provisioning. Its methods used to be bare functions;
-// making them methods gives dependencies — a progressStore, a Cloud Run
-// Jobs trigger — a place to be injected through NewProjectCreationService
+// making them methods gives dependencies — a progressStore, a projectCreator,
+// a Cloud Run Jobs trigger — a place to be injected through NewProjectCreationService
 // instead of each method constructing its own.
 type ProjectCreationService struct {
 	// store is nil outside tests until a real progressStore exists.
 	store progressStore
+	// creator is nil outside tests until a real projectCreator exists.
+	creator projectCreator
 }
 
 // NewProjectCreationService returns a ProjectCreationService. It takes no
