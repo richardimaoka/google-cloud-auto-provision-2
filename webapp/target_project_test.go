@@ -98,6 +98,19 @@ func testOrganization(t *testing.T) domain.Organization {
 	return o
 }
 
+// testBreakGlassRequirement returns break-glass group addresses that
+// fakeGroupLookup serves with no members, so no developer is in them.
+func testBreakGlassRequirement(t *testing.T) domain.BreakGlassRequirement {
+	t.Helper()
+	t.Setenv(domain.BreakGlassUltimateGroupEmailEnv, "break-glass-ultimate@example.com")
+	t.Setenv(domain.BreakGlassEmergencyGroupEmailEnv, "break-glass-emergency@example.com")
+	r, err := domain.NewBreakGlassRequirement()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 // testProgress returns a valid ProjectCreationProgress at StateCreatingProject.
 func testProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreationProgress {
 	t.Helper()
@@ -127,7 +140,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		// All dependencies are fakes that succeed; the creator "creates" example-project.
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t))
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
 
 		// A valid request whose developer group has enough members in example.com.
 		request := InitiateProjectCreationRequest{
@@ -175,7 +188,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 
 	t.Run("recordProjectCreationRequestがエラーならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGroupLookup(t), testOrganization(t))
+		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -198,7 +211,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t))
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -231,7 +244,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("createProjectAndGrantAutomationAccessがエラーならworkerを起動せずエラーを返す", func(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t))
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",
@@ -257,7 +270,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 func TestRecordProjectCreationRequest_StoreFails(t *testing.T) {
 	store := newFakeProgressStore()
 	store.err = errors.New("create failed")
-	svc := NewProjectCreationService(store, nil, nil, testOrganization(t))
+	svc := NewProjectCreationService(store, nil, nil, testOrganization(t), testBreakGlassRequirement(t))
 
 	_, err := svc.recordProjectCreationRequest(context.Background(), testProgress(t, "request-1"))
 	if err == nil {

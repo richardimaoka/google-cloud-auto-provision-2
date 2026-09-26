@@ -39,6 +39,12 @@ func NewBreakGlassRequirement() (BreakGlassRequirement, error) {
 	}, nil
 }
 
+// UltimateGroupEmail returns the ultimate break-glass group's address.
+func (r BreakGlassRequirement) UltimateGroupEmail() Email { return r.ultimateGroupEmail }
+
+// EmergencyGroupEmail returns the emergency break-glass group's address.
+func (r BreakGlassRequirement) EmergencyGroupEmail() Email { return r.emergencyGroupEmail }
+
 func requiredEmailFromEnvironment(name string) (Email, error) {
 	value, ok := os.LookupEnv(name)
 	if !ok || value == "" {

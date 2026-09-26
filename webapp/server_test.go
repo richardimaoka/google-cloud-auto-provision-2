@@ -31,7 +31,7 @@ func testOAuthConfig() *oauth2.Config {
 func TestHandleForm(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{})).ServeHTTP(w, req)
+	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
@@ -46,7 +46,7 @@ func TestHandleSubmit_RedirectsToGoogle(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test&email=a@example.com&group=g@example.com"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{})).ServeHTTP(w, req)
+	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(w, req)
 
 	if w.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
@@ -92,7 +92,7 @@ func TestHandleSubmit(t *testing.T) {
 	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test+Project&email=a@example.com&group=g@example.com"))
 	submitReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	submitW := httptest.NewRecorder()
-	Handler(cfg, NewProjectCreationService(nil, nil, nil, domain.Organization{})).ServeHTTP(submitW, submitReq)
+	Handler(cfg, NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(submitW, submitReq)
 
 	if submitW.Code != http.StatusFound {
 		t.Fatalf("submit status = %d, want %d", submitW.Code, http.StatusFound)
@@ -117,7 +117,7 @@ func TestHandleSubmit(t *testing.T) {
 	callbackReq := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state="+url.QueryEscape(state)+"&code=fake-code", nil)
 	callbackReq.AddCookie(flowCookie)
 	callbackW := httptest.NewRecorder()
-	Handler(cfg, NewProjectCreationService(nil, nil, nil, domain.Organization{})).ServeHTTP(callbackW, callbackReq)
+	Handler(cfg, NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(callbackW, callbackReq)
 
 	if callbackW.Code != http.StatusOK {
 		t.Fatalf("callback status = %d, body = %s", callbackW.Code, callbackW.Body.String())
@@ -135,7 +135,7 @@ func TestHandleSubmit(t *testing.T) {
 func TestHandleOAuthCallback_NoFlowCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state=x&code=y", nil)
 	w := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{})).ServeHTTP(w, req)
+	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
@@ -148,7 +148,7 @@ func TestHandleOAuthCallback_StateMismatch(t *testing.T) {
 	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test&email=a@example.com&group=g@example.com"))
 	submitReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	submitW := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{})).ServeHTTP(submitW, submitReq)
+	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(submitW, submitReq)
 
 	var flowCookie *http.Cookie
 	for _, c := range submitW.Result().Cookies() {
@@ -167,7 +167,7 @@ func TestHandleOAuthCallback_StateMismatch(t *testing.T) {
 	callbackReq := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state="+url.QueryEscape(badState)+"&code=y", nil)
 	callbackReq.AddCookie(flowCookie)
 	w := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{})).ServeHTTP(w, callbackReq)
+	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{})).ServeHTTP(w, callbackReq)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
