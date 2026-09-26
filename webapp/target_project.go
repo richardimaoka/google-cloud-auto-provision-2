@@ -48,21 +48,18 @@ type projectCreator interface {
 	Create(ctx context.Context, token oauth2.TokenSource, request domain.ProjectCreationRequest) (projectID string, err error)
 }
 
-// ProjectCreationService is what the web application calls to start and
-// follow project provisioning. Its methods used to be bare functions;
-// making them methods gives dependencies — a progressStore, a projectCreator,
-// a Cloud Run Jobs trigger — a place to be injected through NewProjectCreationService
-// instead of each method constructing its own.
-type ProjectCreationService struct {
-	// store is nil outside tests until a real progressStore exists.
-	store progressStore
-	// creator is nil outside tests until a real projectCreator exists.
-	creator projectCreator
+// groupLookup gets Google Groups with their members.
+type groupLookup interface {
+	Get(ctx context.Context, email domain.Email) (domain.GoogleGroup, error)
 }
 
-// NewProjectCreationService returns a ProjectCreationService. It takes no
-// arguments yet — add fields and parameters here as the dependencies
-// mentioned above get decided.
+// ProjectCreationService starts and follows project provisioning.
+type ProjectCreationService struct {
+	store   progressStore
+	creator projectCreator
+	groups  groupLookup
+}
+
 func NewProjectCreationService() *ProjectCreationService {
 	return &ProjectCreationService{}
 }
