@@ -20,8 +20,8 @@ import (
 // types they become inside InitiateProjectCreationAsUser. DeveloperGroup's
 // members aren't included here; they're looked up from Google Cloud.
 type InitiateProjectCreationRequest struct {
-	// ID is issued by the caller and doubles as an idempotency key: retrying
-	// with the same ID never starts a second project creation.
+	// ID is issued by the caller. A request with an already recorded ID is
+	// rejected with an error.
 	ID string
 	// DisplayName is the new project's requested display name.
 	DisplayName string
@@ -40,8 +40,8 @@ type InitiateProjectCreationResponse struct {
 
 // progressStore records ProjectCreationProgress.
 type progressStore interface {
-	// Create returns alreadyRecorded=true, recording nothing, if progress.ID exists.
-	Create(ctx context.Context, progress domain.ProjectCreationProgress) (alreadyRecorded bool, err error)
+	// Create returns an error, recording nothing, if progress.ID exists.
+	Create(ctx context.Context, progress domain.ProjectCreationProgress) (domain.ProjectCreationID, error)
 	Update(ctx context.Context, progress domain.ProjectCreationProgress) error
 }
 
@@ -110,20 +110,14 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	}
 
 	// creating_projectとして記録する。
-	// 記録済みのIDなら重複申請なので、プロジェクトを作らずに成功を返す。
+	// 記録済みのIDならエラーを返し、プロジェクトは作らない。
 	id := domain.ProjectCreationID(request.ID)
 	progress, err := domain.NewProjectCreationProgress(id, 1, projectRequest, domain.StateCreatingProject, domain.StatusInProgress, "")
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
-	alreadyRecorded, err := s.progressStore.Create(ctx, progress)
-	if err != nil {
+	if _, err := s.progressStore.Create(ctx, progress); err != nil {
 		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation request: %w", err)
-	}
-	// step:
-	//   記録済みのrequestと中身が違う場合はエラーを返却(storeから記録済みの内容を得る方法は未定)。
-	if alreadyRecorded {
-		return InitiateProjectCreationResponse{ID: id}, nil
 	}
 
 	// 利用者のtokenでプロジェクトを作成し、自動化Service Accountに権限を付与する。

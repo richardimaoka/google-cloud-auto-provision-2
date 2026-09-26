@@ -3,6 +3,7 @@ package webapp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
@@ -22,16 +23,16 @@ func newFakeProgressStore() *fakeProgressStore {
 	return &fakeProgressStore{recorded: map[domain.ProjectCreationID]domain.ProjectCreationProgress{}}
 }
 
-func (f *fakeProgressStore) Create(ctx context.Context, progress domain.ProjectCreationProgress) (bool, error) {
+func (f *fakeProgressStore) Create(ctx context.Context, progress domain.ProjectCreationProgress) (domain.ProjectCreationID, error) {
 	f.creates++
 	if f.err != nil {
-		return false, f.err
+		return "", f.err
 	}
 	if _, ok := f.recorded[progress.ID()]; ok {
-		return true, nil
+		return "", fmt.Errorf("project creation %q is already recorded", progress.ID())
 	}
 	f.recorded[progress.ID()] = progress
-	return false, nil
+	return progress.ID(), nil
 }
 
 func (f *fakeProgressStore) Update(ctx context.Context, progress domain.ProjectCreationProgress) error {
@@ -225,7 +226,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		}
 	})
 
-	t.Run("記録済みのIDで再試行すると二重にプロジェクトを作成しない", func(t *testing.T) {
+	t.Run("記録済みのIDで再試行するとエラーを返し、プロジェクトを作成しない", func(t *testing.T) {
 		store := newFakeProgressStore()
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
@@ -238,14 +239,10 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "requester@example.com",
 			DeveloperGroup: "developer-group@example.com",
 		}
-		// Success: no error and the same ID, because a retry isn't a failure, and
-		// nothing runs after store.Create reports the ID as recorded.
-		got, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
-		if err != nil {
-			t.Fatalf("InitiateProjectCreationAsUser(already recorded ID) = %v, want nil error", err)
-		}
-		if got.ID != domain.ProjectCreationID(request.ID) {
-			t.Errorf("InitiateProjectCreationAsUser(already recorded ID).ID = %q, want %q", got.ID, request.ID)
+		// Success: an error, and nothing runs after store.Create rejects the ID.
+		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
+		if err == nil {
+			t.Error("InitiateProjectCreationAsUser(already recorded ID) = nil error, want an error")
 		}
 		// Confirms the duplicate was detected through the store, not skipped
 		// some other way.
