@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"github.com/yusni/google-cloud-auto-provision-2/webapp"
 )
 
@@ -29,7 +30,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	projects := webapp.NewProjectCreationService()
+	// TODO: pass real dependencies and the organization once they exist.
+	projects := webapp.NewProjectCreationService(nil, nil, nil, domain.Organization{})
 
 	log.Printf("listening on http://%s", displayAddr(*addr))
 	log.Fatal(http.ListenAndServe(*addr, webapp.Handler(cfg, projects)))

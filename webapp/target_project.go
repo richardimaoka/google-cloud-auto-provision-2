@@ -62,8 +62,8 @@ type ProjectCreationService struct {
 	organization domain.Organization
 }
 
-func NewProjectCreationService() *ProjectCreationService {
-	return &ProjectCreationService{}
+func NewProjectCreationService(store progressStore, creator projectCreator, groups groupLookup, organization domain.Organization) *ProjectCreationService {
+	return &ProjectCreationService{store: store, creator: creator, groups: groups, organization: organization}
 }
 
 // recordProjectCreationRequest records progress. If progress.ID is already

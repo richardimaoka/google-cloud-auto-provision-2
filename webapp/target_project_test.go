@@ -127,7 +127,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		// All dependencies are fakes that succeed; the creator "creates" example-project.
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := &ProjectCreationService{store: store, creator: creator, groups: newFakeGroupLookup(t), organization: testOrganization(t)}
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t))
 
 		// A valid request whose developer group has enough members in example.com.
 		request := InitiateProjectCreationRequest{
@@ -172,7 +172,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 
 	t.Run("recordProjectCreationRequestがエラーならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := &ProjectCreationService{store: newFakeProgressStore(), creator: creator, groups: newFakeGroupLookup(t), organization: testOrganization(t)}
+		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGroupLookup(t), testOrganization(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -193,7 +193,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := &ProjectCreationService{store: store, creator: creator, groups: newFakeGroupLookup(t), organization: testOrganization(t)}
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -224,7 +224,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("createProjectAndGrantAutomationAccessがエラーならworkerを起動せずエラーを返す", func(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
-		svc := &ProjectCreationService{store: store, creator: creator, groups: newFakeGroupLookup(t), organization: testOrganization(t)}
+		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), testOrganization(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",
@@ -249,7 +249,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 func TestRecordProjectCreationRequest_StoreFails(t *testing.T) {
 	store := newFakeProgressStore()
 	store.err = errors.New("create failed")
-	svc := &ProjectCreationService{store: store}
+	svc := NewProjectCreationService(store, nil, nil, testOrganization(t))
 
 	_, err := svc.recordProjectCreationRequest(context.Background(), testProgress(t, "request-1"))
 	if err == nil {
