@@ -10,13 +10,13 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"flag"
 	"log"
 	"net"
 	"net/http"
 	"os"
 
-	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"github.com/yusni/google-cloud-auto-provision-2/webapp"
 )
 
@@ -30,8 +30,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// TODO: pass real dependencies, the organization, break-glass groups and service account once they exist.
-	projects := webapp.NewProjectCreationService(nil, nil, nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{}, domain.Email{})
+	projects, err := webapp.NewProjectCreationService(context.Background())
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	log.Printf("listening on http://%s", displayAddr(*addr))
 	log.Fatal(http.ListenAndServe(*addr, webapp.Handler(cfg, projects)))

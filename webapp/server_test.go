@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"golang.org/x/oauth2"
 )
 
@@ -31,7 +30,7 @@ func testOAuthConfig() *oauth2.Config {
 func TestHandleForm(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{}, domain.Email{})).ServeHTTP(w, req)
+	Handler(testOAuthConfig(), newProjectCreationService(config{}, nil, nil, nil, nil, nil)).ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
@@ -46,7 +45,7 @@ func TestHandleSubmit_RedirectsToGoogle(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test&email=a@example.com&group=g@example.com"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{}, domain.Email{})).ServeHTTP(w, req)
+	Handler(testOAuthConfig(), newProjectCreationService(config{}, nil, nil, nil, nil, nil)).ServeHTTP(w, req)
 
 	if w.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusFound)
@@ -92,7 +91,7 @@ func TestHandleSubmit(t *testing.T) {
 	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test+Project&email=a@example.com&group=developer-group@example.com"))
 	submitReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	submitW := httptest.NewRecorder()
-	Handler(cfg, NewProjectCreationService(nil, nil, nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{}, domain.Email{})).ServeHTTP(submitW, submitReq)
+	Handler(cfg, newProjectCreationService(config{}, nil, nil, nil, nil, nil)).ServeHTTP(submitW, submitReq)
 
 	if submitW.Code != http.StatusFound {
 		t.Fatalf("submit status = %d, want %d", submitW.Code, http.StatusFound)
@@ -118,7 +117,7 @@ func TestHandleSubmit(t *testing.T) {
 	callbackReq.AddCookie(flowCookie)
 	callbackW := httptest.NewRecorder()
 	// The callback runs InitiateProjectCreationAsUser, so it needs working fakes.
-	projects := NewProjectCreationService(newFakeProgressStore(), &fakeProjectCreator{projectID: "example-project"}, newFakeGoogleGroups(t), &fakeJobStarter{}, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+	projects := newProjectCreationService(testConfig(t), newFakeProgressStore(), &fakeProjectCreator{projectID: "example-project"}, newFakeGoogleGroups(t), &fakeJobStarter{}, &fakeIAMClient{})
 	Handler(cfg, projects).ServeHTTP(callbackW, callbackReq)
 
 	if callbackW.Code != http.StatusOK {
@@ -137,7 +136,7 @@ func TestHandleSubmit(t *testing.T) {
 func TestHandleOAuthCallback_NoFlowCookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state=x&code=y", nil)
 	w := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{}, domain.Email{})).ServeHTTP(w, req)
+	Handler(testOAuthConfig(), newProjectCreationService(config{}, nil, nil, nil, nil, nil)).ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
@@ -150,7 +149,7 @@ func TestHandleOAuthCallback_StateMismatch(t *testing.T) {
 	submitReq := httptest.NewRequest(http.MethodPost, "/submit", strings.NewReader("display_name=Test&email=a@example.com&group=g@example.com"))
 	submitReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	submitW := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{}, domain.Email{})).ServeHTTP(submitW, submitReq)
+	Handler(testOAuthConfig(), newProjectCreationService(config{}, nil, nil, nil, nil, nil)).ServeHTTP(submitW, submitReq)
 
 	var flowCookie *http.Cookie
 	for _, c := range submitW.Result().Cookies() {
@@ -169,7 +168,7 @@ func TestHandleOAuthCallback_StateMismatch(t *testing.T) {
 	callbackReq := httptest.NewRequest(http.MethodGet, "/oauth2/callback?state="+url.QueryEscape(badState)+"&code=y", nil)
 	callbackReq.AddCookie(flowCookie)
 	w := httptest.NewRecorder()
-	Handler(testOAuthConfig(), NewProjectCreationService(nil, nil, nil, nil, nil, domain.Organization{}, domain.BreakGlassRequirement{}, domain.Email{})).ServeHTTP(w, callbackReq)
+	Handler(testOAuthConfig(), newProjectCreationService(config{}, nil, nil, nil, nil, nil)).ServeHTTP(w, callbackReq)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)

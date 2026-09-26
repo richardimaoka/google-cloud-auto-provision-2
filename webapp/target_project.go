@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
@@ -65,6 +66,20 @@ type iamClient interface {
 	RemoveBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Email, role domain.IAMRole) error
 }
 
+// Environment variables that configFromEnvironment reads.
+const (
+	organizationIDEnv     = "ORGANIZATION_ID"
+	organizationDomainEnv = "ORGANIZATION_DOMAIN"
+	serviceAccountEnv     = "AUTOMATION_SA_EMAIL"
+)
+
+// config is what ProjectCreationService needs besides its dependencies.
+type config struct {
+	Organization   domain.Organization
+	BreakGlass     domain.BreakGlassRequirement
+	ServiceAccount domain.Email
+}
+
 // ProjectCreationService starts and follows project provisioning.
 type ProjectCreationService struct {
 	progressStore  progressStore
@@ -77,8 +92,46 @@ type ProjectCreationService struct {
 	serviceAccount domain.Email
 }
 
-func NewProjectCreationService(store progressStore, creator projectCreator, groups googleGroups, jobs jobStarter, iam iamClient, organization domain.Organization, breakGlass domain.BreakGlassRequirement, serviceAccount domain.Email) *ProjectCreationService {
-	return &ProjectCreationService{progressStore: store, projectCreator: creator, googleGroups: groups, jobStarter: jobs, iamClient: iam, organization: organization, breakGlass: breakGlass, serviceAccount: serviceAccount}
+// NewProjectCreationService returns a ProjectCreationService backed by Google
+// Cloud, configured from the environment.
+func NewProjectCreationService(ctx context.Context) (*ProjectCreationService, error) {
+	cfg, err := configFromEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	// TODO: build the Google Cloud-backed dependencies once they exist.
+	return newProjectCreationService(cfg, nil, nil, nil, nil, nil), nil
+}
+
+// configFromEnvironment reads config from the environment.
+func configFromEnvironment() (config, error) {
+	organization, err := domain.NewOrganization(os.Getenv(organizationIDEnv), os.Getenv(organizationDomainEnv))
+	if err != nil {
+		return config{}, fmt.Errorf("%s/%s: %w", organizationIDEnv, organizationDomainEnv, err)
+	}
+	breakGlass, err := domain.NewBreakGlassRequirement()
+	if err != nil {
+		return config{}, err
+	}
+	serviceAccount, err := domain.NewEmail(os.Getenv(serviceAccountEnv))
+	if err != nil {
+		return config{}, fmt.Errorf("%s: %w", serviceAccountEnv, err)
+	}
+	return config{Organization: organization, BreakGlass: breakGlass, ServiceAccount: serviceAccount}, nil
+}
+
+// newProjectCreationService takes the dependencies directly, so tests can pass fakes.
+func newProjectCreationService(cfg config, store progressStore, creator projectCreator, groups googleGroups, jobs jobStarter, iam iamClient) *ProjectCreationService {
+	return &ProjectCreationService{
+		progressStore:  store,
+		projectCreator: creator,
+		googleGroups:   groups,
+		jobStarter:     jobs,
+		iamClient:      iam,
+		organization:   cfg.Organization,
+		breakGlass:     cfg.BreakGlass,
+		serviceAccount: cfg.ServiceAccount,
+	}
 }
 
 // InitiateProjectCreationAsUser records the request, creates the project with

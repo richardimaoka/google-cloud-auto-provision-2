@@ -130,37 +130,26 @@ func (f *fakeIAMClient) RemoveBinding(ctx context.Context, token oauth2.TokenSou
 	return nil
 }
 
-// testOrganization returns an organization whose domain is example.com.
-func testOrganization(t *testing.T) domain.Organization {
+// testConfig returns a config in the example.com organization. Its
+// break-glass groups are served by fakeGoogleGroups with no members, so no
+// developer is in them.
+func testConfig(t *testing.T) config {
 	t.Helper()
-	o, err := domain.NewOrganization("123456789012", "example.com")
+	organization, err := domain.NewOrganization("123456789012", "example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return o
-}
-
-// testBreakGlassRequirement returns break-glass group addresses that
-// fakeGoogleGroups serves with no members, so no developer is in them.
-func testBreakGlassRequirement(t *testing.T) domain.BreakGlassRequirement {
-	t.Helper()
 	t.Setenv(domain.BreakGlassUltimateGroupEmailEnv, "break-glass-ultimate@example.com")
 	t.Setenv(domain.BreakGlassEmergencyGroupEmailEnv, "break-glass-emergency@example.com")
-	r, err := domain.NewBreakGlassRequirement()
+	breakGlass, err := domain.NewBreakGlassRequirement()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return r
-}
-
-// testServiceAccount returns the automation service account's email.
-func testServiceAccount(t *testing.T) domain.Email {
-	t.Helper()
-	e, err := domain.NewEmail("automation@example-project.iam.gserviceaccount.com")
+	serviceAccount, err := domain.NewEmail("automation@example-project.iam.gserviceaccount.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return e
+	return config{Organization: organization, BreakGlass: breakGlass, ServiceAccount: serviceAccount}
 }
 
 // testProgress returns a valid ProjectCreationProgress at StateCreatingProject.
@@ -194,7 +183,8 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
 		iam := &fakeIAMClient{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, iam, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+		cfg := testConfig(t)
+		svc := newProjectCreationService(cfg, store, creator, newFakeGoogleGroups(t), jobs, iam)
 
 		// A valid request whose developer group has enough members in example.com.
 		request := InitiateProjectCreationRequest{
@@ -243,7 +233,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := iamBinding{projectID: "example-project", principal: testServiceAccount(t), role: role}
+		want := iamBinding{projectID: "example-project", principal: cfg.ServiceAccount, role: role}
 		if len(iam.added) != 1 || iam.added[0] != want {
 			t.Errorf("IAM bindings added = %v, want [%v]", iam.added, want)
 		}
@@ -256,7 +246,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("入力が不正ならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+		svc := newProjectCreationService(testConfig(t), newFakeProgressStore(), creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{})
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -283,7 +273,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+		svc := newProjectCreationService(testConfig(t), store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{})
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -316,7 +306,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+		svc := newProjectCreationService(testConfig(t), store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{})
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",
@@ -364,7 +354,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, groups, jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+		svc := newProjectCreationService(testConfig(t), store, creator, groups, jobs, &fakeIAMClient{})
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-has-problem",
@@ -395,7 +385,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
 		iam := &fakeIAMClient{err: errors.New("permission denied")}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, iam, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+		svc := newProjectCreationService(testConfig(t), store, creator, newFakeGoogleGroups(t), jobs, iam)
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-binding-fails",
@@ -425,7 +415,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{err: errors.New("quota exceeded")}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
+		svc := newProjectCreationService(testConfig(t), store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{})
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-job-fails",
@@ -447,4 +437,41 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateAddingIAMBindings, domain.StatusError)
 		}
 	})
+}
+
+func TestConfigFromEnvironment(t *testing.T) {
+	setEnv := func(t *testing.T) {
+		t.Setenv(organizationIDEnv, "123456789012")
+		t.Setenv(organizationDomainEnv, "example.com")
+		t.Setenv(domain.BreakGlassUltimateGroupEmailEnv, "break-glass-ultimate@example.com")
+		t.Setenv(domain.BreakGlassEmergencyGroupEmailEnv, "break-glass-emergency@example.com")
+		t.Setenv(serviceAccountEnv, "automation@example-project.iam.gserviceaccount.com")
+	}
+
+	t.Run("環境変数からconfigを読み込む", func(t *testing.T) {
+		setEnv(t)
+		cfg, err := configFromEnvironment()
+		if err != nil {
+			t.Fatalf("configFromEnvironment() = %v", err)
+		}
+		if cfg.Organization.ID() != "123456789012" || cfg.Organization.Domain() != "example.com" {
+			t.Errorf("Organization = %q/%q, want %q/%q", cfg.Organization.ID(), cfg.Organization.Domain(), "123456789012", "example.com")
+		}
+		if got := cfg.BreakGlass.UltimateGroupEmail().String(); got != "break-glass-ultimate@example.com" {
+			t.Errorf("BreakGlass.UltimateGroupEmail() = %q, want %q", got, "break-glass-ultimate@example.com")
+		}
+		if got := cfg.ServiceAccount.String(); got != "automation@example-project.iam.gserviceaccount.com" {
+			t.Errorf("ServiceAccount = %q, want %q", got, "automation@example-project.iam.gserviceaccount.com")
+		}
+	})
+
+	for _, name := range []string{organizationIDEnv, organizationDomainEnv, domain.BreakGlassUltimateGroupEmailEnv, serviceAccountEnv} {
+		t.Run(name+"が空だとエラー", func(t *testing.T) {
+			setEnv(t)
+			t.Setenv(name, "")
+			if _, err := configFromEnvironment(); err == nil {
+				t.Errorf("configFromEnvironment() with empty %s = nil error, want an error", name)
+			}
+		})
+	}
 }
