@@ -64,30 +64,14 @@ func NewProjectCreationService() *ProjectCreationService {
 	return &ProjectCreationService{}
 }
 
-// recordProjectCreationRequest validates request, then records it in
-// BigQuery as ProjectCreationProgress at StateCreatingProject — or, if
-// request.ID is already recorded, returns the existing ID unchanged instead
-// of starting a second project creation. Both InitiateProjectCreationAsUser
-// and InitiateProjectCreationAsServiceAccount call this first; it has no
-// principal-specific behavior, since nothing here needs the requester's own
-// credentials.
-func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
+// recordProjectCreationRequest records progress. If progress.ID is already
+// recorded, it records nothing and returns alreadyRecorded=true.
+func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Context, progress domain.ProjectCreationProgress) (alreadyRecorded bool, err error) {
 	// step:
-	//   request.DisplayName・Requester・DeveloperGroupからdomain.ProjectCreationRequestを構成し、
-	//   バリデーション(domain.NewEmail, domain.NewGoogleGroup, domain.NewProjectCreationRequest)。
-	//   判定に必要な情報(DeveloperGroupのメンバー、break-glassグループのメンバー等)はGoogle Cloudから取得。
-	//   判定はdomainの判定関数(I/Oなし、取得した情報を引数で受け取る)で行う。workerも同じ関数で再判定する。
-	//   問題があれば、BigQueryには記録せず、問題と推奨解決法とともにエラーを返却。
-	//   (ProjectCreationProgressはdomain.ProjectCreationRequestを必須で持つため、構成前には記録できない)
-
-	// step:
-	//   State = "creating_project", status = "in_progress"のProjectCreationProgressを
 	//   s.store.Createで記録。エラーなら返却。
-	//   alreadyRecordedなら重複申請なので、後続処理の起動もせず、記録済みのIDで成功を返却
-	//   (呼び出し元が後続処理をしないよう、その旨を返す必要がある。返し方は未定)。
 	//   ただし記録済みのrequestと中身が違う場合はエラーを返却(storeから記録済みの内容を得る方法は未定)。
 
-	return InitiateProjectCreationResponse{ID: request.ID}, nil
+	return false, nil
 }
 
 // InitiateProjectCreationAsUser accepts a project creation request under the
@@ -105,11 +89,20 @@ func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Contex
 // recordProjectCreationRequest into the survivor.
 func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, token oauth2.TokenSource) (InitiateProjectCreationResponse, error) {
 	// step:
+	//   request.DisplayName・Requester・DeveloperGroupからdomain.ProjectCreationRequestを構成し、
+	//   バリデーション(domain.NewEmail, domain.NewGoogleGroup, domain.NewProjectCreationRequest)。
+	//   判定に必要な情報(DeveloperGroupのメンバー、break-glassグループのメンバー等)はs.groupsで取得。
+	//   判定はdomainの判定関数(I/Oなし、取得した情報を引数で受け取る)で行う。workerも同じ関数で再判定する。
+	//   問題があれば、記録せず、問題と推奨解決法とともにエラーを返却。
+
+	// step:
+	//   State = "creating_project", status = "in_progress"のdomain.ProjectCreationProgressを構成し、
 	//   recordProjectCreationRequestを呼ぶ。エラーならそのまま返却。
+	//   alreadyRecordedならプロジェクト作成もworker起動もせず、request.IDで成功を返却。
 
 	// step:
 	//   tokenでs.creator.Createを呼ぶ。エラーならworkerを起動せず返却。
-	//   成功したら、作成したプロジェクトのIDを渡してProjectCreationProgress.AdvancePastCreationを呼び、
+	//   成功したら、作成したプロジェクトのIDを渡してprogress.AdvancePastCreationを呼び、
 	//   その結果をs.store.Updateで記録(State = "adding_iam_bindings", status = "in_progress"になる)。
 
 	// step:

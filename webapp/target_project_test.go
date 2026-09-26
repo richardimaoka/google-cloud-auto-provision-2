@@ -58,9 +58,8 @@ func (f *fakeProjectCreator) Create(ctx context.Context, token oauth2.TokenSourc
 	return f.projectID, nil
 }
 
-// recordedProgress returns a ProjectCreationProgress to pre-populate a
-// fakeProgressStore with, as if an earlier request had been recorded.
-func recordedProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreationProgress {
+// testProgress returns a valid ProjectCreationProgress at StateCreatingProject.
+func testProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreationProgress {
 	t.Helper()
 	requester, err := domain.NewEmail("requester@example.com")
 	if err != nil {
@@ -109,7 +108,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 
 	t.Run("記録済みのIDで再試行すると二重にプロジェクトを作成しない", func(t *testing.T) {
 		store := newFakeProgressStore()
-		store.recorded["request-retried"] = recordedProgress(t, "request-retried")
+		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		svc := &ProjectCreationService{store: store, creator: creator}
 
@@ -169,12 +168,7 @@ func TestRecordProjectCreationRequest_StoreFails(t *testing.T) {
 	store.err = errors.New("create failed")
 	svc := &ProjectCreationService{store: store}
 
-	_, err := svc.recordProjectCreationRequest(context.Background(), InitiateProjectCreationRequest{
-		ID:             "request-1",
-		DisplayName:    "Example Project",
-		Requester:      "requester@example.com",
-		DeveloperGroup: "developer-group@example.com",
-	})
+	_, err := svc.recordProjectCreationRequest(context.Background(), testProgress(t, "request-1"))
 	if err == nil {
 		t.Error("recordProjectCreationRequest with a failing store.Create = nil error, want an error")
 	}
