@@ -99,6 +99,26 @@ func (f *fakeJobStarter) Start(ctx context.Context, id domain.ProjectCreationID)
 	return nil
 }
 
+// iamBinding is one AddBinding or RemoveBinding call.
+type iamBinding struct {
+	projectID, role, member string
+}
+
+// fakeIAMClient records the bindings it was asked to add and remove.
+type fakeIAMClient struct {
+	added, removed []iamBinding
+}
+
+func (f *fakeIAMClient) AddBinding(ctx context.Context, projectID, role, member string) error {
+	f.added = append(f.added, iamBinding{projectID, role, member})
+	return nil
+}
+
+func (f *fakeIAMClient) RemoveBinding(ctx context.Context, projectID, role, member string) error {
+	f.removed = append(f.removed, iamBinding{projectID, role, member})
+	return nil
+}
+
 // testOrganization returns an organization whose domain is example.com.
 func testOrganization(t *testing.T) domain.Organization {
 	t.Helper()
@@ -152,7 +172,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t))
 
 		// A valid request whose developer group has enough members in example.com.
 		request := InitiateProjectCreationRequest{
@@ -204,7 +224,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("入力が不正ならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGoogleGroups(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -231,7 +251,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -264,7 +284,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",

@@ -61,19 +61,24 @@ type jobStarter interface {
 	Start(ctx context.Context, id domain.ProjectCreationID) error
 }
 
+type iamClient interface {
+	AddBinding(ctx context.Context, projectID string, role string, member string) error
+	RemoveBinding(ctx context.Context, projectID string, role string, member string) error
+}
+
 // ProjectCreationService starts and follows project provisioning.
 type ProjectCreationService struct {
 	progressStore  progressStore
 	projectCreator projectCreator
 	googleGroups   googleGroups
 	jobStarter     jobStarter
-
-	organization domain.Organization
-	breakGlass   domain.BreakGlassRequirement
+	iamClient      iamClient
+	organization   domain.Organization
+	breakGlass     domain.BreakGlassRequirement
 }
 
-func NewProjectCreationService(store progressStore, creator projectCreator, groups googleGroups, jobs jobStarter, organization domain.Organization, breakGlass domain.BreakGlassRequirement) *ProjectCreationService {
-	return &ProjectCreationService{progressStore: store, projectCreator: creator, googleGroups: groups, jobStarter: jobs, organization: organization, breakGlass: breakGlass}
+func NewProjectCreationService(store progressStore, creator projectCreator, groups googleGroups, jobs jobStarter, iam iamClient, organization domain.Organization, breakGlass domain.BreakGlassRequirement) *ProjectCreationService {
+	return &ProjectCreationService{progressStore: store, projectCreator: creator, googleGroups: groups, jobStarter: jobs, iamClient: iam, organization: organization, breakGlass: breakGlass}
 }
 
 // InitiateProjectCreationAsUser records the request, creates the project with
