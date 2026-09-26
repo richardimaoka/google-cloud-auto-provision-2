@@ -35,7 +35,7 @@ func renderTemplate(w http.ResponseWriter, name string, data any) {
 
 // resultData is what result.html renders.
 type resultData struct {
-	ID          domain.ProjectCreationID
+	ID          string
 	DisplayName string
 	Email       string
 	Group       string
@@ -166,7 +166,7 @@ func handleOAuthCallback(cfg *oauth2.Config, projects *ProjectCreationService) h
 		}
 
 		request := InitiateProjectCreationRequest{
-			ID:             state.RequestID,
+			ID:             string(state.RequestID),
 			DisplayName:    state.DisplayName,
 			Requester:      state.Requester,
 			DeveloperGroup: state.DeveloperGroup,
@@ -180,7 +180,7 @@ func handleOAuthCallback(cfg *oauth2.Config, projects *ProjectCreationService) h
 		}
 
 		renderTemplate(w, "result.html", resultData{
-			ID:          resp.ID,
+			ID:          string(resp.ID),
 			DisplayName: request.DisplayName,
 			Email:       request.Requester,
 			Group:       request.DeveloperGroup,

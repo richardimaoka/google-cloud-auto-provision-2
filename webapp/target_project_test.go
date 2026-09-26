@@ -143,7 +143,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("InitiateProjectCreationAsUser() = %v, want nil error", err)
 		}
-		if got.ID != request.ID {
+		if got.ID != domain.ProjectCreationID(request.ID) {
 			t.Errorf("InitiateProjectCreationAsUser().ID = %q, want %q", got.ID, request.ID)
 		}
 		// The project is created (and access granted) exactly once.
@@ -157,7 +157,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 
 		// Call counts alone don't show what was saved: check that the last write is
 		// AdvancePastCreation's result, with the creator's project ID and the submitted request.
-		progress, ok := store.recorded[request.ID]
+		progress, ok := store.recorded[domain.ProjectCreationID(request.ID)]
 		if !ok {
 			t.Fatalf("no progress recorded for %q", request.ID)
 		}
@@ -212,7 +212,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		if err != nil {
 			t.Fatalf("InitiateProjectCreationAsUser(already recorded ID) = %v, want nil error", err)
 		}
-		if got.ID != request.ID {
+		if got.ID != domain.ProjectCreationID(request.ID) {
 			t.Errorf("InitiateProjectCreationAsUser(already recorded ID).ID = %q, want %q", got.ID, request.ID)
 		}
 		// Confirms the duplicate was detected through the store, not skipped

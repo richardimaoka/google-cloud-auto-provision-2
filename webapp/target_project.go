@@ -19,7 +19,7 @@ import (
 type InitiateProjectCreationRequest struct {
 	// ID is issued by the caller and doubles as an idempotency key: retrying
 	// with the same ID never starts a second project creation.
-	ID domain.ProjectCreationID
+	ID string
 	// DisplayName is the new project's requested display name.
 	DisplayName string
 	// Requester is the requester's email address.
@@ -110,7 +110,7 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	// step:
 	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。
 
-	return InitiateProjectCreationResponse{ID: request.ID}, nil
+	return InitiateProjectCreationResponse{ID: domain.ProjectCreationID(request.ID)}, nil
 }
 
 // InitiateProjectCreationAsServiceAccount accepts a project creation request
@@ -130,7 +130,7 @@ func (s *ProjectCreationService) InitiateProjectCreationAsServiceAccount(ctx con
 	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。
 	//   (workerが自身でプロジェクトを作成するため、ここでの追加処理はない。)
 
-	return InitiateProjectCreationResponse{ID: request.ID}, nil
+	return InitiateProjectCreationResponse{ID: domain.ProjectCreationID(request.ID)}, nil
 }
 
 // createProjectAndGrantAutomationAccess creates the Google Cloud project for
