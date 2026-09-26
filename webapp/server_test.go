@@ -118,7 +118,7 @@ func TestHandleSubmit(t *testing.T) {
 	callbackReq.AddCookie(flowCookie)
 	callbackW := httptest.NewRecorder()
 	// The callback runs InitiateProjectCreationAsUser, so it needs working fakes.
-	projects := NewProjectCreationService(newFakeProgressStore(), &fakeProjectCreator{projectID: "example-project"}, newFakeGroupLookup(t), &fakeJobStarter{}, testOrganization(t), testBreakGlassRequirement(t))
+	projects := NewProjectCreationService(newFakeProgressStore(), &fakeProjectCreator{projectID: "example-project"}, newFakeGoogleGroups(t), &fakeJobStarter{}, testOrganization(t), testBreakGlassRequirement(t))
 	Handler(cfg, projects).ServeHTTP(callbackW, callbackReq)
 
 	if callbackW.Code != http.StatusOK {

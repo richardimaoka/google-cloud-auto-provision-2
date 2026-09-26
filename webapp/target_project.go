@@ -51,9 +51,9 @@ type projectCreator interface {
 	Create(ctx context.Context, token oauth2.TokenSource, request domain.ProjectCreationRequest) (projectID string, err error)
 }
 
-// groupLookup gets Google Groups with their members.
-type groupLookup interface {
-	Get(ctx context.Context, email domain.Email) (domain.GoogleGroup, error)
+// googleGroups looks up Google Groups with their members.
+type googleGroups interface {
+	LookUp(ctx context.Context, email domain.Email) (domain.GoogleGroup, error)
 }
 
 // jobStarter starts the Cloud Run job that continues a project creation.
@@ -63,23 +63,23 @@ type jobStarter interface {
 
 // ProjectCreationService starts and follows project provisioning.
 type ProjectCreationService struct {
-	store   progressStore
-	creator projectCreator
-	groups  groupLookup
-	jobs    jobStarter
+	progressStore  progressStore
+	projectCreator projectCreator
+	googleGroups   googleGroups
+	jobStarter     jobStarter
 
 	organization domain.Organization
 	breakGlass   domain.BreakGlassRequirement
 }
 
-func NewProjectCreationService(store progressStore, creator projectCreator, groups groupLookup, jobs jobStarter, organization domain.Organization, breakGlass domain.BreakGlassRequirement) *ProjectCreationService {
-	return &ProjectCreationService{store: store, creator: creator, groups: groups, jobs: jobs, organization: organization, breakGlass: breakGlass}
+func NewProjectCreationService(store progressStore, creator projectCreator, groups googleGroups, jobs jobStarter, organization domain.Organization, breakGlass domain.BreakGlassRequirement) *ProjectCreationService {
+	return &ProjectCreationService{progressStore: store, projectCreator: creator, googleGroups: groups, jobStarter: jobs, organization: organization, breakGlass: breakGlass}
 }
 
 // recordProjectCreationRequest records progress. If progress.ID is already
 // recorded, it records nothing and returns alreadyRecorded=true.
 func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Context, progress domain.ProjectCreationProgress) (alreadyRecorded bool, err error) {
-	alreadyRecorded, err = s.store.Create(ctx, progress)
+	alreadyRecorded, err = s.progressStore.Create(ctx, progress)
 	if err != nil {
 		return false, fmt.Errorf("record project creation request: %w", err)
 	}
@@ -94,7 +94,7 @@ func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Contex
 // Use it until the automation service account can create projects itself.
 func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Context, request InitiateProjectCreationRequest, token oauth2.TokenSource) (InitiateProjectCreationResponse, error) {
 	// フォームの文字列からdomain.ProjectCreationRequestを構成する。
-	// DeveloperGroupのメンバーはs.groupsで取得。不正な値ならエラーを返す。
+	// DeveloperGroupのメンバーはs.googleGroupsで取得。不正な値ならエラーを返す。
 	requester, err := domain.NewEmail(request.Requester)
 	if err != nil {
 		return InitiateProjectCreationResponse{}, fmt.Errorf("requester: %w", err)
@@ -103,9 +103,9 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	if err != nil {
 		return InitiateProjectCreationResponse{}, fmt.Errorf("developer group: %w", err)
 	}
-	developerGroup, err := s.groups.Get(ctx, developerGroupEmail)
+	developerGroup, err := s.googleGroups.LookUp(ctx, developerGroupEmail)
 	if err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("get developer group: %w", err)
+		return InitiateProjectCreationResponse{}, fmt.Errorf("look up developer group: %w", err)
 	}
 	projectRequest, err := domain.NewProjectCreationRequest(request.DisplayName, requester, developerGroup)
 	if err != nil {
@@ -139,12 +139,12 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 
 	// 利用者のtokenでプロジェクトを作成し、自動化Service Accountに権限を付与する。
 	// 成功したらadding_iam_bindingsに進め、失敗したらerrorとして記録する。
-	projectID, err := s.creator.Create(ctx, token, projectRequest)
+	projectID, err := s.projectCreator.Create(ctx, token, projectRequest)
 	if err != nil {
 		err = fmt.Errorf("create project: %w", err)
 		if failed, failErr := progress.Fail(); failErr != nil {
 			err = errors.Join(err, failErr)
-		} else if updateErr := s.store.Update(ctx, failed); updateErr != nil {
+		} else if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
 			err = errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
 		}
 		return InitiateProjectCreationResponse{}, err
@@ -153,28 +153,28 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
-	if err := s.store.Update(ctx, progress); err != nil {
+	if err := s.progressStore.Update(ctx, progress); err != nil {
 		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation: %w", err)
 	}
 
 	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動する。
-	if err := s.jobs.Start(ctx, id); err != nil {
+	if err := s.jobStarter.Start(ctx, id); err != nil {
 		return InitiateProjectCreationResponse{}, fmt.Errorf("start project creation job: %w", err)
 	}
 
 	return InitiateProjectCreationResponse{ID: id}, nil
 }
 
-// getBreakGlass gets the break-glass groups at s.breakGlass's addresses with
+// getBreakGlass looks up the break-glass groups at s.breakGlass's addresses with
 // their current members.
 func (s *ProjectCreationService) getBreakGlass(ctx context.Context) (domain.BreakGlass, error) {
-	ultimate, err := s.groups.Get(ctx, s.breakGlass.UltimateGroupEmail())
+	ultimate, err := s.googleGroups.LookUp(ctx, s.breakGlass.UltimateGroupEmail())
 	if err != nil {
-		return domain.BreakGlass{}, fmt.Errorf("get ultimate break-glass group: %w", err)
+		return domain.BreakGlass{}, fmt.Errorf("look up ultimate break-glass group: %w", err)
 	}
-	emergency, err := s.groups.Get(ctx, s.breakGlass.EmergencyGroupEmail())
+	emergency, err := s.googleGroups.LookUp(ctx, s.breakGlass.EmergencyGroupEmail())
 	if err != nil {
-		return domain.BreakGlass{}, fmt.Errorf("get emergency break-glass group: %w", err)
+		return domain.BreakGlass{}, fmt.Errorf("look up emergency break-glass group: %w", err)
 	}
 	return domain.NewBreakGlass(s.breakGlass, ultimate, emergency)
 }

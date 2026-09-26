@@ -58,21 +58,21 @@ func (f *fakeProjectCreator) Create(ctx context.Context, token oauth2.TokenSourc
 	return f.projectID, nil
 }
 
-// fakeGroupLookup returns groups[email], or a group with no members if absent.
-type fakeGroupLookup struct {
+// fakeGoogleGroups returns groups[email], or a group with no members if absent.
+type fakeGoogleGroups struct {
 	groups map[string]domain.GoogleGroup
 }
 
-func (f *fakeGroupLookup) Get(ctx context.Context, email domain.Email) (domain.GoogleGroup, error) {
+func (f *fakeGoogleGroups) LookUp(ctx context.Context, email domain.Email) (domain.GoogleGroup, error) {
 	if g, ok := f.groups[email.String()]; ok {
 		return g, nil
 	}
 	return domain.NewGoogleGroup(email, nil), nil
 }
 
-// newFakeGroupLookup returns a fakeGroupLookup where
+// newFakeGoogleGroups returns a fakeGoogleGroups where
 // developer-group@example.com has two members in example.com.
-func newFakeGroupLookup(t *testing.T) *fakeGroupLookup {
+func newFakeGoogleGroups(t *testing.T) *fakeGoogleGroups {
 	t.Helper()
 	email := func(s string) domain.Email {
 		e, err := domain.NewEmail(s)
@@ -85,7 +85,7 @@ func newFakeGroupLookup(t *testing.T) *fakeGroupLookup {
 		domain.NewGoogleGroupMember(email("alice@example.com"), "MEMBER"),
 		domain.NewGoogleGroupMember(email("bob@example.com"), "MEMBER"),
 	})
-	return &fakeGroupLookup{groups: map[string]domain.GoogleGroup{"developer-group@example.com": group}}
+	return &fakeGoogleGroups{groups: map[string]domain.GoogleGroup{"developer-group@example.com": group}}
 }
 
 // fakeJobStarter records the IDs it was asked to start.
@@ -109,7 +109,7 @@ func testOrganization(t *testing.T) domain.Organization {
 }
 
 // testBreakGlassRequirement returns break-glass group addresses that
-// fakeGroupLookup serves with no members, so no developer is in them.
+// fakeGoogleGroups serves with no members, so no developer is in them.
 func testBreakGlassRequirement(t *testing.T) domain.BreakGlassRequirement {
 	t.Helper()
 	t.Setenv(domain.BreakGlassUltimateGroupEmailEnv, "break-glass-ultimate@example.com")
@@ -151,7 +151,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
 
 		// A valid request whose developer group has enough members in example.com.
 		request := InitiateProjectCreationRequest{
@@ -203,7 +203,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("入力が不正ならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGroupLookup(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGoogleGroups(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -230,7 +230,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -267,7 +267,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGroupLookup(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, testOrganization(t), testBreakGlassRequirement(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",
