@@ -136,6 +136,8 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "requester@example.com",
 			DeveloperGroup: "developer-group@example.com",
 		}
+		// Success: the request is accepted (nil error, same ID), the project is
+		// created once, and the progress is recorded and then advanced.
 		// The token is nil because the fake creator ignores it.
 		got, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
 		if err != nil {
@@ -153,7 +155,8 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			t.Errorf("store.Create/Update were called %d/%d times, want 1/1", store.creates, store.updates)
 		}
 
-		// The final recorded progress is past creation and carries the new project's ID.
+		// Call counts alone don't show what was saved: check that the last write is
+		// AdvancePastCreation's result, with the creator's project ID and the submitted request.
 		progress, ok := store.recorded[request.ID]
 		if !ok {
 			t.Fatalf("no progress recorded for %q", request.ID)
@@ -177,9 +180,11 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
 			DisplayName:    "Example Project",
-			Requester:      "not-an-email",
+			Requester:      "not-an-email", // invalid, so InitiateProjectCreationAsUser returns an error
 			DeveloperGroup: "developer-group@example.com",
 		}
+		// Success: an error and no project, because validation must stop a bad
+		// request before anything reaches Google Cloud.
 		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
 		if err == nil {
 			t.Error("InitiateProjectCreationAsUser(invalid requester email) = nil error, want an error")
@@ -201,6 +206,8 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "requester@example.com",
 			DeveloperGroup: "developer-group@example.com",
 		}
+		// Success: no error and the same ID, because a retry isn't a failure, and
+		// nothing runs after store.Create reports the ID as recorded.
 		got, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
 		if err != nil {
 			t.Fatalf("InitiateProjectCreationAsUser(already recorded ID) = %v, want nil error", err)
@@ -232,6 +239,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 			Requester:      "requester@example.com",
 			DeveloperGroup: "developer-group@example.com",
 		}
+		// Success: an error, so the caller knows the request wasn't accepted.
 		_, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
 		if err == nil {
 			t.Error("InitiateProjectCreationAsUser(project creation fails) = nil error, want an error")
