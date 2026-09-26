@@ -299,22 +299,6 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 	})
 }
 
-// TestRecordProjectCreationRequest_StoreFails checks that a failing
-// store.Create is returned as an error.
-func TestRecordProjectCreationRequest_StoreFails(t *testing.T) {
-	store := newFakeProgressStore()
-	store.err = errors.New("create failed")
-	svc := NewProjectCreationService(store, nil, nil, nil, testOrganization(t), testBreakGlassRequirement(t))
-
-	_, err := svc.recordProjectCreationRequest(context.Background(), testProgress(t, "request-1"))
-	if err == nil {
-		t.Error("recordProjectCreationRequest with a failing store.Create = nil error, want an error")
-	}
-	if store.creates != 1 {
-		t.Errorf("store.Create was called %d times, want 1", store.creates)
-	}
-}
-
 // TestCreateProjectAndGrantAutomationAccess is a scaffold:
 // createProjectAndGrantAutomationAccess is still a stub, so every case is
 // skipped until it has a real body to test.

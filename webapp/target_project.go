@@ -17,7 +17,7 @@ import (
 // InitiateProjectCreationRequest is the input for initiating target project
 // creation. DisplayName, Requester and DeveloperGroup are as submitted on the
 // form (see webapp/server.go): raw, unvalidated strings, not yet the domain
-// types they become inside recordProjectCreationRequest. DeveloperGroup's
+// types they become inside InitiateProjectCreationAsUser. DeveloperGroup's
 // members aren't included here; they're looked up from Google Cloud.
 type InitiateProjectCreationRequest struct {
 	// ID is issued by the caller and doubles as an idempotency key: retrying
@@ -76,19 +76,6 @@ func NewProjectCreationService(store progressStore, creator projectCreator, grou
 	return &ProjectCreationService{progressStore: store, projectCreator: creator, googleGroups: groups, jobStarter: jobs, organization: organization, breakGlass: breakGlass}
 }
 
-// recordProjectCreationRequest records progress. If progress.ID is already
-// recorded, it records nothing and returns alreadyRecorded=true.
-func (s *ProjectCreationService) recordProjectCreationRequest(ctx context.Context, progress domain.ProjectCreationProgress) (alreadyRecorded bool, err error) {
-	alreadyRecorded, err = s.progressStore.Create(ctx, progress)
-	if err != nil {
-		return false, fmt.Errorf("record project creation request: %w", err)
-	}
-	// step:
-	//   記録済みのrequestと中身が違う場合はエラーを返却(storeから記録済みの内容を得る方法は未定)。
-
-	return alreadyRecorded, nil
-}
-
 // InitiateProjectCreationAsUser records the request, creates the project with
 // the caller's token, and hands the rest of the setup to a Cloud Run job.
 // Use it until the automation service account can create projects itself.
@@ -129,10 +116,12 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	if err != nil {
 		return InitiateProjectCreationResponse{}, err
 	}
-	alreadyRecorded, err := s.recordProjectCreationRequest(ctx, progress)
+	alreadyRecorded, err := s.progressStore.Create(ctx, progress)
 	if err != nil {
-		return InitiateProjectCreationResponse{}, err
+		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation request: %w", err)
 	}
+	// step:
+	//   記録済みのrequestと中身が違う場合はエラーを返却(storeから記録済みの内容を得る方法は未定)。
 	if alreadyRecorded {
 		return InitiateProjectCreationResponse{ID: id}, nil
 	}
@@ -203,7 +192,7 @@ func (e *ProjectCreationProblemsError) Error() string {
 // project creator permission; see InitiateProjectCreationAsUser for now.
 func (s *ProjectCreationService) InitiateProjectCreationAsServiceAccount(ctx context.Context, request InitiateProjectCreationRequest) (InitiateProjectCreationResponse, error) {
 	// step:
-	//   recordProjectCreationRequestを呼ぶ。エラーならそのまま返却。
+	//   progressStore.Createで記録する。エラーならそのまま返却。
 
 	// step:
 	//   request.IDを渡して、Cloud Run Jobsのworker.RunProjectCreationを起動。
