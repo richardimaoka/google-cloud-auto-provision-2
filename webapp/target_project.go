@@ -100,7 +100,7 @@ func NewProjectCreationService(ctx context.Context) (*ProjectCreationService, er
 		return nil, err
 	}
 	// TODO: build the other Google Cloud-backed dependencies once they exist.
-	return newProjectCreationService(cfg, nil, nil, &cloudIdentityGroups{}, nil, nil), nil
+	return newProjectCreationService(cfg, nil, &resourceManagerProjects{}, &cloudIdentityGroups{}, nil, nil), nil
 }
 
 // configFromEnvironment reads config from the environment.
