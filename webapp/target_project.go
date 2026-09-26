@@ -58,6 +58,8 @@ type ProjectCreationService struct {
 	store   progressStore
 	creator projectCreator
 	groups  groupLookup
+
+	organization domain.Organization
 }
 
 func NewProjectCreationService() *ProjectCreationService {
@@ -92,7 +94,7 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	//   request.DisplayName・Requester・DeveloperGroupからdomain.ProjectCreationRequestを構成し、
 	//   バリデーション(domain.NewEmail, domain.NewGoogleGroup, domain.NewProjectCreationRequest)。
 	//   判定に必要な情報(DeveloperGroupのメンバー、break-glassグループのメンバー等)はs.groupsで取得。
-	//   判定はdomainの判定関数(I/Oなし、取得した情報を引数で受け取る)で行う。workerも同じ関数で再判定する。
+	//   判定はdomainの判定関数(I/Oなし、取得した情報とs.organizationを引数で受け取る)で行う。workerも同じ関数で再判定する。
 	//   問題があれば、記録せず、問題と推奨解決法とともにエラーを返却。
 
 	// step:

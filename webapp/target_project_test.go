@@ -58,6 +58,46 @@ func (f *fakeProjectCreator) Create(ctx context.Context, token oauth2.TokenSourc
 	return f.projectID, nil
 }
 
+// fakeGroupLookup returns groups[email], or a group with no members if absent.
+type fakeGroupLookup struct {
+	groups map[string]domain.GoogleGroup
+}
+
+func (f *fakeGroupLookup) Get(ctx context.Context, email domain.Email) (domain.GoogleGroup, error) {
+	if g, ok := f.groups[email.String()]; ok {
+		return g, nil
+	}
+	return domain.NewGoogleGroup(email, nil), nil
+}
+
+// newFakeGroupLookup returns a fakeGroupLookup where
+// developer-group@example.com has two members in example.com.
+func newFakeGroupLookup(t *testing.T) *fakeGroupLookup {
+	t.Helper()
+	email := func(s string) domain.Email {
+		e, err := domain.NewEmail(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	group := domain.NewGoogleGroup(email("developer-group@example.com"), []domain.GoogleGroupMember{
+		domain.NewGoogleGroupMember(email("alice@example.com"), "MEMBER"),
+		domain.NewGoogleGroupMember(email("bob@example.com"), "MEMBER"),
+	})
+	return &fakeGroupLookup{groups: map[string]domain.GoogleGroup{"developer-group@example.com": group}}
+}
+
+// testOrganization returns an organization whose domain is example.com.
+func testOrganization(t *testing.T) domain.Organization {
+	t.Helper()
+	o, err := domain.NewOrganization("123456789012", "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
 // testProgress returns a valid ProjectCreationProgress at StateCreatingProject.
 func testProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreationProgress {
 	t.Helper()
@@ -84,12 +124,55 @@ func testProgress(t *testing.T, id domain.ProjectCreationID) domain.ProjectCreat
 // access-granting happen in order, and a failure anywhere is returned.
 func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("正常系: 記録・プロジェクト作成・権限付与・AdvancePastCreation・worker起動まで行う", func(t *testing.T) {
-		t.Skip("blocked: no seam yet to fake the Cloud Run Jobs start")
+		// All dependencies are fakes that succeed; the creator "creates" example-project.
+		store := newFakeProgressStore()
+		creator := &fakeProjectCreator{projectID: "example-project"}
+		svc := &ProjectCreationService{store: store, creator: creator, groups: newFakeGroupLookup(t), organization: testOrganization(t)}
+
+		// A valid request whose developer group has enough members in example.com.
+		request := InitiateProjectCreationRequest{
+			ID:             "request-ok",
+			DisplayName:    "Example Project",
+			Requester:      "requester@example.com",
+			DeveloperGroup: "developer-group@example.com",
+		}
+		// The token is nil because the fake creator ignores it.
+		got, err := svc.InitiateProjectCreationAsUser(context.Background(), request, nil)
+		if err != nil {
+			t.Fatalf("InitiateProjectCreationAsUser() = %v, want nil error", err)
+		}
+		if got.ID != request.ID {
+			t.Errorf("InitiateProjectCreationAsUser().ID = %q, want %q", got.ID, request.ID)
+		}
+		// The project is created (and access granted) exactly once.
+		if creator.calls != 1 {
+			t.Errorf("creator.Create was called %d times, want 1", creator.calls)
+		}
+		// Recorded once at creating_project, then updated once after AdvancePastCreation.
+		if store.creates != 1 || store.updates != 1 {
+			t.Errorf("store.Create/Update were called %d/%d times, want 1/1", store.creates, store.updates)
+		}
+
+		// The final recorded progress is past creation and carries the new project's ID.
+		progress, ok := store.recorded[request.ID]
+		if !ok {
+			t.Fatalf("no progress recorded for %q", request.ID)
+		}
+		if progress.State() != domain.StateAddingIAMBindings || progress.Status() != domain.StatusInProgress {
+			t.Errorf("recorded state/status = %q/%q, want %q/%q", progress.State(), progress.Status(), domain.StateAddingIAMBindings, domain.StatusInProgress)
+		}
+		if progress.ProjectID() != "example-project" {
+			t.Errorf("recorded ProjectID = %q, want %q", progress.ProjectID(), "example-project")
+		}
+		if progress.Request().DisplayName != request.DisplayName {
+			t.Errorf("recorded DisplayName = %q, want %q", progress.Request().DisplayName, request.DisplayName)
+		}
+		// TODO: check the worker start once it has a seam.
 	})
 
 	t.Run("recordProjectCreationRequestがエラーならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := &ProjectCreationService{store: newFakeProgressStore(), creator: creator}
+		svc := &ProjectCreationService{store: newFakeProgressStore(), creator: creator, groups: newFakeGroupLookup(t), organization: testOrganization(t)}
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -110,7 +193,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
-		svc := &ProjectCreationService{store: store, creator: creator}
+		svc := &ProjectCreationService{store: store, creator: creator, groups: newFakeGroupLookup(t), organization: testOrganization(t)}
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -141,7 +224,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("createProjectAndGrantAutomationAccessがエラーならworkerを起動せずエラーを返す", func(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
-		svc := &ProjectCreationService{store: store, creator: creator}
+		svc := &ProjectCreationService{store: store, creator: creator, groups: newFakeGroupLookup(t), organization: testOrganization(t)}
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",
