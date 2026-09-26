@@ -101,7 +101,9 @@ func (f *fakeJobStarter) Start(ctx context.Context, id domain.ProjectCreationID)
 
 // iamBinding is one AddBinding or RemoveBinding call.
 type iamBinding struct {
-	projectID, role, member string
+	projectID string
+	principal domain.Email
+	role      domain.IAMRole
 }
 
 // fakeIAMClient records the bindings it was asked to add and remove.
@@ -109,13 +111,13 @@ type fakeIAMClient struct {
 	added, removed []iamBinding
 }
 
-func (f *fakeIAMClient) AddBinding(ctx context.Context, projectID, role, member string) error {
-	f.added = append(f.added, iamBinding{projectID, role, member})
+func (f *fakeIAMClient) AddBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error {
+	f.added = append(f.added, iamBinding{projectID, principal, role})
 	return nil
 }
 
-func (f *fakeIAMClient) RemoveBinding(ctx context.Context, projectID, role, member string) error {
-	f.removed = append(f.removed, iamBinding{projectID, role, member})
+func (f *fakeIAMClient) RemoveBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error {
+	f.removed = append(f.removed, iamBinding{projectID, principal, role})
 	return nil
 }
 
@@ -140,6 +142,16 @@ func testBreakGlassRequirement(t *testing.T) domain.BreakGlassRequirement {
 		t.Fatal(err)
 	}
 	return r
+}
+
+// testServiceAccount returns the automation service account's email.
+func testServiceAccount(t *testing.T) domain.Email {
+	t.Helper()
+	e, err := domain.NewEmail("automation@example-project.iam.gserviceaccount.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
 }
 
 // testProgress returns a valid ProjectCreationProgress at StateCreatingProject.
@@ -172,7 +184,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
 
 		// A valid request whose developer group has enough members in example.com.
 		request := InitiateProjectCreationRequest{
@@ -224,7 +236,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 	t.Run("入力が不正ならプロジェクトを作成せずエラーを返す", func(t *testing.T) {
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(newFakeProgressStore(), creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-invalid-email",
@@ -251,7 +263,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store.recorded["request-retried"] = testProgress(t, "request-retried")
 		creator := &fakeProjectCreator{projectID: "example-project"}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-retried",
@@ -284,7 +296,7 @@ func TestInitiateProjectCreationAsUser(t *testing.T) {
 		store := newFakeProgressStore()
 		creator := &fakeProjectCreator{err: errors.New("permission denied")}
 		jobs := &fakeJobStarter{}
-		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t))
+		svc := NewProjectCreationService(store, creator, newFakeGoogleGroups(t), jobs, &fakeIAMClient{}, testOrganization(t), testBreakGlassRequirement(t), testServiceAccount(t))
 
 		request := InitiateProjectCreationRequest{
 			ID:             "request-create-fails",

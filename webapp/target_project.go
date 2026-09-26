@@ -62,8 +62,8 @@ type jobStarter interface {
 }
 
 type iamClient interface {
-	AddBinding(ctx context.Context, projectID string, role string, member string) error
-	RemoveBinding(ctx context.Context, projectID string, role string, member string) error
+	AddBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error
+	RemoveBinding(ctx context.Context, projectID string, principal domain.Email, role domain.IAMRole) error
 }
 
 // ProjectCreationService starts and follows project provisioning.
@@ -75,10 +75,11 @@ type ProjectCreationService struct {
 	iamClient      iamClient
 	organization   domain.Organization
 	breakGlass     domain.BreakGlassRequirement
+	serviceAccount domain.Email
 }
 
-func NewProjectCreationService(store progressStore, creator projectCreator, groups googleGroups, jobs jobStarter, iam iamClient, organization domain.Organization, breakGlass domain.BreakGlassRequirement) *ProjectCreationService {
-	return &ProjectCreationService{progressStore: store, projectCreator: creator, googleGroups: groups, jobStarter: jobs, iamClient: iam, organization: organization, breakGlass: breakGlass}
+func NewProjectCreationService(store progressStore, creator projectCreator, groups googleGroups, jobs jobStarter, iam iamClient, organization domain.Organization, breakGlass domain.BreakGlassRequirement, serviceAccount domain.Email) *ProjectCreationService {
+	return &ProjectCreationService{progressStore: store, projectCreator: creator, googleGroups: groups, jobStarter: jobs, iamClient: iam, organization: organization, breakGlass: breakGlass, serviceAccount: serviceAccount}
 }
 
 // InitiateProjectCreationAsUser records the request, creates the project with
@@ -147,8 +148,20 @@ func (s *ProjectCreationService) InitiateProjectCreationAsUser(ctx context.Conte
 	if err := s.progressStore.Update(ctx, progress); err != nil {
 		return InitiateProjectCreationResponse{}, fmt.Errorf("record project creation: %w", err)
 	}
-	if err := s.iamClient.AddBinding(ctx, projectID, "", ""); err != nil {
-		return InitiateProjectCreationResponse{}, fmt.Errorf("adding IAM binding for service account: %w", err)
+	projectIamAdminRole, err := domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")
+	if err != nil {
+		// domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
+		return InitiateProjectCreationResponse{}, fmt.Errorf("invalid IAM role: %w", err)
+	}
+	if err := s.iamClient.AddBinding(ctx, projectID, s.serviceAccount, projectIamAdminRole); err != nil {
+		err = fmt.Errorf("adding IAM binding for service account: %w", err)
+		if failed, failErr := progress.Fail(); failErr != nil {
+			// progress.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
+			err = errors.Join(err, failErr)
+		} else if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
+			err = errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
+		}
+		return InitiateProjectCreationResponse{}, err
 	}
 
 	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動する。
