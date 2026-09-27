@@ -6,8 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/yusni/google-cloud-auto-provision-2/domain"
 )
 
 // TestFormTemplate checks that form.html executes without error and has the
@@ -35,7 +33,7 @@ func TestFormTemplate(t *testing.T) {
 // gave the old inline string-literal templates.
 func TestResultTemplate(t *testing.T) {
 	data := resultData{
-		ID:          domain.ProjectCreationID("request-123"),
+		ID:          "request-123",
 		DisplayName: "Example Project",
 		Email:       "requester@example.com",
 		Group:       "developer-group@example.com",
@@ -47,7 +45,7 @@ func TestResultTemplate(t *testing.T) {
 	}
 	body := buf.String()
 	for _, want := range []string{
-		"Request ID: " + string(data.ID),
+		"Request ID: " + data.ID,
 		"Project display name: " + data.DisplayName,
 		"Your email: " + data.Email,
 		"Google group email: " + data.Group,

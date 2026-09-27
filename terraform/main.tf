@@ -149,3 +149,51 @@ resource "google_iap_web_cloud_run_service_iam_member" "domain_access" {
 
   depends_on = [google_project_service.apis]
 }
+
+# Holds the application's records. The webapp and worker read and write it as
+# the automation service account.
+resource "google_bigquery_dataset" "app" {
+  project    = google_project.this.project_id
+  dataset_id = "auto_provision"
+  location   = var.region
+
+  depends_on = [google_project_service.apis]
+}
+
+# The current progress of each project creation request: one row per
+# request_id, updated in place as the request moves through its states.
+# BigQuery doesn't enforce keys, so the app keeps request_id unique itself.
+resource "google_bigquery_table" "project_creation_progress" {
+  project    = google_project.this.project_id
+  dataset_id = google_bigquery_dataset.app.dataset_id
+  table_id   = "project_creation_progress"
+
+  schema = jsonencode([
+    { name = "request_id", type = "STRING", mode = "REQUIRED", description = "Caller-issued ID of the request." },
+    { name = "revision", type = "INT64", mode = "REQUIRED", description = "Goes up when a failed request is amended." },
+    { name = "state", type = "STRING", mode = "REQUIRED", description = "Current step, like creating_project." },
+    { name = "status", type = "STRING", mode = "REQUIRED", description = "in_progress, error or success." },
+    { name = "project_id", type = "STRING", mode = "NULLABLE", description = "Created project's ID. NULL while creating_project." },
+    { name = "display_name", type = "STRING", mode = "REQUIRED", description = "Requested display name." },
+    { name = "requester", type = "STRING", mode = "REQUIRED", description = "Requester's email." },
+    { name = "developer_group", type = "STRING", mode = "REQUIRED", description = "Developer group's email." },
+    { name = "error_message", type = "STRING", mode = "NULLABLE", description = "Why the current step failed, when status is error." },
+    { name = "created_at", type = "TIMESTAMP", mode = "REQUIRED", description = "When the request was recorded." },
+    { name = "updated_at", type = "TIMESTAMP", mode = "REQUIRED", description = "When the row last changed." },
+  ])
+}
+
+# Lets the automation service account read and write the app's tables...
+resource "google_bigquery_dataset_iam_member" "app_editor" {
+  project    = google_project.this.project_id
+  dataset_id = google_bigquery_dataset.app.dataset_id
+  role       = "roles/bigquery.dataEditor"
+  member     = "serviceAccount:${google_service_account.automation.email}"
+}
+
+# ...and run the query jobs that do it.
+resource "google_project_iam_member" "automation_bigquery_job_user" {
+  project = google_project.this.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.automation.email}"
+}

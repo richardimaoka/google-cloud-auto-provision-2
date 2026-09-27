@@ -91,6 +91,7 @@ func TestProjectCreationProgress_Advance(t *testing.T) {
 		state  State
 		status Status
 	}{
+		{StateAddingServiceAccountIAMBindings, StatusInProgress},
 		{StateAddingIAMBindings, StatusInProgress},
 		{StateAddingPAMEntitlements, StatusInProgress},
 		{StateInitialSetupDone, StatusSuccess},
@@ -159,14 +160,14 @@ func TestProjectCreationProgress_Advance(t *testing.T) {
 }
 
 func TestProjectCreationProgress_AdvancePastCreation(t *testing.T) {
-	t.Run("creating_project/in_progressから、指定したprojectIDでadding_iam_bindingsに進む", func(t *testing.T) {
+	t.Run("creating_project/in_progressから、指定したprojectIDでadding_service_account_iam_bindingsに進む", func(t *testing.T) {
 		before := progress(t, StateCreatingProject, StatusInProgress)
 		after, err := before.AdvancePastCreation(testProjectID)
 		if err != nil {
 			t.Fatalf("AdvancePastCreation(%q): %v", testProjectID, err)
 		}
-		if after.State() != StateAddingIAMBindings || after.Status() != StatusInProgress || after.ProjectID() != testProjectID {
-			t.Errorf("got %q/%q/%q, want %q/%q/%q", after.State(), after.Status(), after.ProjectID(), StateAddingIAMBindings, StatusInProgress, testProjectID)
+		if after.State() != StateAddingServiceAccountIAMBindings || after.Status() != StatusInProgress || after.ProjectID() != testProjectID {
+			t.Errorf("got %q/%q/%q, want %q/%q/%q", after.State(), after.Status(), after.ProjectID(), StateAddingServiceAccountIAMBindings, StatusInProgress, testProjectID)
 		}
 		if before.State() != StateCreatingProject || before.ProjectID() != "" {
 			t.Errorf("AdvancePastCreation changed the receiver to %q/%q", before.State(), before.ProjectID())

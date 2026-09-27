@@ -53,6 +53,7 @@ func RunProjectCreation(ctx context.Context, id domain.ProjectCreationID) error 
 	//     - ProjectCreationProgress, State = "creating_project", status = "error"
 	//     - 問題と推奨解決法
 
+	// TODO: 古い記述。InitiateProjectCreationAsUserから起動した場合、webappのstartSetupJobがadding_iam_bindings/in_progressを記録済みなので、ここでの記録は不要かもしれない。
 	// step:
 	//   以下をBigQueryに記録した後で、IAM binding設定requestをGoogle Cloudに送信。
 	//     - ProjectCreationProgress, State = "adding_iam_bindings", status = "in_progress"

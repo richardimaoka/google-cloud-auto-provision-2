@@ -170,6 +170,13 @@ func (c *BigQueryClient) Query(ctx context.Context, projectID, datasetID string)
 	return records, nil
 }
 
+// Insert adds record to the project's project_creation_records table.
+//
+// Not implemented yet.
+func (c *BigQueryClient) Insert(ctx context.Context, projectID, datasetID string, record ProjectCreationRecord) error {
+	return nil
+}
+
 func projectCreationRecordFromRow(row *bigquery.TableRow) (ProjectCreationRecord, error) {
 	if len(row.F) != 3 {
 		return ProjectCreationRecord{}, fmt.Errorf("got %d cells, want 3", len(row.F))

@@ -12,7 +12,6 @@ import (
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
 	"golang.org/x/oauth2"
-	"google.golang.org/api/option"
 )
 
 //go:embed templates/*.html
@@ -36,7 +35,7 @@ func renderTemplate(w http.ResponseWriter, name string, data any) {
 
 // resultData is what result.html renders.
 type resultData struct {
-	ID          domain.ProjectCreationID
+	ID          string
 	DisplayName string
 	Email       string
 	Group       string
@@ -48,8 +47,9 @@ type resultData struct {
 // showing what was submitted.
 //
 // cfg comes from LoadOAuthConfig. Its RedirectURL's path is served for
-// Google's sign-in redirect, alongside the form's own routes.
-func Handler(cfg *oauth2.Config) http.Handler {
+// Google's sign-in redirect, alongside the form's own routes. projects
+// carries out the request once sign-in completes.
+func Handler(cfg *oauth2.Config, projects *ProjectCreationService) http.Handler {
 	redirect, err := url.Parse(cfg.RedirectURL)
 	if err != nil {
 		// LoadOAuthConfig already validated this; a hand-built cfg with a bad
@@ -60,7 +60,7 @@ func Handler(cfg *oauth2.Config) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", handleForm)
 	mux.HandleFunc("POST /submit", handleSubmit(cfg))
-	mux.HandleFunc("GET "+redirect.Path, handleOAuthCallback(cfg))
+	mux.HandleFunc("GET "+redirect.Path, handleOAuthCallback(cfg, projects))
 	return mux
 }
 
@@ -117,9 +117,9 @@ func handleSubmit(cfg *oauth2.Config) http.HandlerFunc {
 
 // handleOAuthCallback completes a sign-in started by handleSubmit: it checks
 // the CSRF nonce, exchanges the code for a token using the PKCE verifier,
-// and calls InitiateProjectCreationAsUser with that token — used once, right
-// here, and never stored anywhere.
-func handleOAuthCallback(cfg *oauth2.Config) http.HandlerFunc {
+// and calls projects.InitiateProjectCreationAsUser with that token — used
+// once, right here, and never stored anywhere.
+func handleOAuthCallback(cfg *oauth2.Config, projects *ProjectCreationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(oauthFlowCookie)
 		if err != nil {
@@ -166,22 +166,21 @@ func handleOAuthCallback(cfg *oauth2.Config) http.HandlerFunc {
 		}
 
 		request := InitiateProjectCreationRequest{
-			ID:             state.RequestID,
+			ID:             string(state.RequestID),
 			DisplayName:    state.DisplayName,
 			Requester:      state.Requester,
 			DeveloperGroup: state.DeveloperGroup,
 		}
 		// cfg.TokenSource refreshes token itself if it goes stale during the
 		// initial setup, unlike a bare oauth2.StaticTokenSource(token).
-		callerCredentials := option.WithTokenSource(cfg.TokenSource(r.Context(), token))
-		resp, err := InitiateProjectCreationAsUser(r.Context(), request, callerCredentials)
+		resp, err := projects.InitiateProjectCreationAsUser(r.Context(), request, cfg.TokenSource(r.Context(), token))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
 
 		renderTemplate(w, "result.html", resultData{
-			ID:          resp.ID,
+			ID:          string(resp.ID),
 			DisplayName: request.DisplayName,
 			Email:       request.Requester,
 			Group:       request.DeveloperGroup,

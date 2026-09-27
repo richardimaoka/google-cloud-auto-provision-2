@@ -22,3 +22,8 @@ output "webapp_url" {
   description = "URL of the deployed Cloud Run webapp service."
   value       = google_cloud_run_v2_service.webapp.uri
 }
+
+output "bigquery_dataset" {
+  description = "BigQuery dataset holding the app's tables."
+  value       = google_bigquery_dataset.app.dataset_id
+}
