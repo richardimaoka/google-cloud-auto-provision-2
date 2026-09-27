@@ -153,7 +153,8 @@ resource "google_iap_web_cloud_run_service_iam_member" "domain_access" {
 # Holds the application's records. The webapp and worker read and write it as
 # the automation service account.
 resource "google_bigquery_dataset" "app" {
-  project    = google_project.this.project_id
+  project = google_project.this.project_id
+  # Hardcoded in webapp as bigQueryDataset; change both together.
   dataset_id = "auto_provision"
   location   = var.region
 

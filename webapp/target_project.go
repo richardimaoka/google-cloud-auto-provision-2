@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/yusni/google-cloud-auto-provision-2/domain"
+	"github.com/yusni/google-cloud-auto-provision-2/googlecloud"
 	"golang.org/x/oauth2"
 )
 
@@ -74,13 +75,20 @@ const (
 	organizationIDEnv     = "ORGANIZATION_ID"
 	organizationDomainEnv = "ORGANIZATION_DOMAIN"
 	serviceAccountEnv     = "AUTOMATION_SA_EMAIL"
+	googleCloudProjectEnv = "GOOGLE_CLOUD_PROJECT_ID"
 )
+
+// bigQueryDataset holds the project_creation_progress table. It matches
+// google_bigquery_dataset.app in terraform/main.tf.
+const bigQueryDataset = "auto_provision"
 
 // config is what ProjectCreationService needs besides its dependencies.
 type config struct {
 	Organization   domain.Organization
 	BreakGlass     domain.BreakGlassRequirement
 	ServiceAccount domain.Email
+	// BigQueryProject holds the bigQueryDataset dataset.
+	BigQueryProject string
 }
 
 // ProjectCreationService starts and follows project provisioning.
@@ -102,8 +110,15 @@ func NewProjectCreationService(ctx context.Context) (*ProjectCreationService, er
 	if err != nil {
 		return nil, err
 	}
-	// TODO: build the other Google Cloud-backed dependencies once they exist.
-	return newProjectCreationService(cfg, nil, &resourceManagerProjects{}, &cloudIdentityGroups{}, nil, &resourceManagerIAM{}), nil
+	// The progress table is the app's own data, so it's accessed with the app's
+	// credentials, unlike the other dependencies, which act as the user.
+	bigQuery, err := googlecloud.NewBigQueryClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	store := &bigQueryProgressStore{client: bigQuery, projectID: cfg.BigQueryProject, datasetID: bigQueryDataset}
+	// TODO: build jobStarter once it exists.
+	return newProjectCreationService(cfg, store, &resourceManagerProjects{}, &cloudIdentityGroups{}, nil, &resourceManagerIAM{}), nil
 }
 
 // configFromEnvironment reads config from the environment.
@@ -120,7 +135,25 @@ func configFromEnvironment() (config, error) {
 	if err != nil {
 		return config{}, fmt.Errorf("%s: %w", serviceAccountEnv, err)
 	}
-	return config{Organization: organization, BreakGlass: breakGlass, ServiceAccount: serviceAccount}, nil
+	bigQueryProject, err := requiredEnv(googleCloudProjectEnv)
+	if err != nil {
+		return config{}, err
+	}
+	return config{
+		Organization:    organization,
+		BreakGlass:      breakGlass,
+		ServiceAccount:  serviceAccount,
+		BigQueryProject: bigQueryProject,
+	}, nil
+}
+
+// requiredEnv returns the environment variable name, or an error if it's unset or empty.
+func requiredEnv(name string) (string, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return "", fmt.Errorf("required environment variable %s is not set", name)
+	}
+	return value, nil
 }
 
 // newProjectCreationService takes the dependencies directly, so tests can pass fakes.

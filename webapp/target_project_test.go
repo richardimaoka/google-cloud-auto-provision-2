@@ -154,7 +154,12 @@ func testConfig(t *testing.T) config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return config{Organization: organization, BreakGlass: breakGlass, ServiceAccount: serviceAccount}
+	return config{
+		Organization:    organization,
+		BreakGlass:      breakGlass,
+		ServiceAccount:  serviceAccount,
+		BigQueryProject: "my-project",
+	}
 }
 
 // testProgress returns a valid ProjectCreationProgress at StateCreatingProject.
@@ -451,6 +456,7 @@ func TestConfigFromEnvironment(t *testing.T) {
 		t.Setenv(domain.BreakGlassUltimateGroupEmailEnv, "break-glass-ultimate@example.com")
 		t.Setenv(domain.BreakGlassEmergencyGroupEmailEnv, "break-glass-emergency@example.com")
 		t.Setenv(serviceAccountEnv, "automation@example-project.iam.gserviceaccount.com")
+		t.Setenv(googleCloudProjectEnv, "my-project")
 	}
 
 	t.Run("環境変数からconfigを読み込む", func(t *testing.T) {
@@ -468,9 +474,12 @@ func TestConfigFromEnvironment(t *testing.T) {
 		if got := cfg.ServiceAccount.String(); got != "automation@example-project.iam.gserviceaccount.com" {
 			t.Errorf("ServiceAccount = %q, want %q", got, "automation@example-project.iam.gserviceaccount.com")
 		}
+		if cfg.BigQueryProject != "my-project" {
+			t.Errorf("BigQueryProject = %q, want %q", cfg.BigQueryProject, "my-project")
+		}
 	})
 
-	for _, name := range []string{organizationIDEnv, organizationDomainEnv, domain.BreakGlassUltimateGroupEmailEnv, serviceAccountEnv} {
+	for _, name := range []string{organizationIDEnv, organizationDomainEnv, domain.BreakGlassUltimateGroupEmailEnv, serviceAccountEnv, googleCloudProjectEnv} {
 		t.Run(name+"が空だとエラー", func(t *testing.T) {
 			setEnv(t)
 			t.Setenv(name, "")
