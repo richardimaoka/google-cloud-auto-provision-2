@@ -25,6 +25,9 @@ resource "google_project" "this" {
   billing_account = var.billing_account
   org_id          = local.org_id
   folder_id       = local.folder_id
+
+  # The provider's default, spelled out: terraform destroy never deletes the project.
+  deletion_policy = "PREVENT"
 }
 
 resource "google_project_service" "apis" {
