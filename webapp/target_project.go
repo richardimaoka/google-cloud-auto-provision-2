@@ -78,16 +78,12 @@ const (
 	googleCloudProjectEnv = "GOOGLE_CLOUD_PROJECT_ID"
 )
 
-// bigQueryDataset holds the project_creation_progress table. It matches
-// google_bigquery_dataset.app in terraform/modules/progress_table.
-const bigQueryDataset = "auto_provision"
-
 // config is what ProjectCreationService needs besides its dependencies.
 type config struct {
 	Organization   domain.Organization
 	BreakGlass     domain.BreakGlassRequirement
 	ServiceAccount domain.Email
-	// BigQueryProject holds the bigQueryDataset dataset.
+	// BigQueryProject holds the googlecloud.ProgressDatasetID dataset.
 	BigQueryProject string
 }
 
@@ -116,7 +112,7 @@ func NewProjectCreationService(ctx context.Context) (*ProjectCreationService, er
 	if err != nil {
 		return nil, err
 	}
-	store := &bigQueryProgressStore{client: bigQuery, projectID: cfg.BigQueryProject, datasetID: bigQueryDataset}
+	store := &bigQueryProgressStore{client: bigQuery, projectID: cfg.BigQueryProject, datasetID: googlecloud.ProgressDatasetID}
 	// TODO: build jobStarter once it exists.
 	return newProjectCreationService(cfg, store, &resourceManagerProjects{}, &cloudIdentityGroups{}, nil, &resourceManagerIAM{}), nil
 }

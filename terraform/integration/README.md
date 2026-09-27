@@ -31,8 +31,7 @@ terraform plan
 terraform apply
 ```
 
-Put `terraform output project_id` in `GOOGLECLOUD_TEST_CONTROL_PROJECT` and
-`terraform output bigquery_dataset` in `GOOGLECLOUD_TEST_BIGQUERY_DATASET`, in
+Put `terraform output project_id` in `GOOGLECLOUD_TEST_CONTROL_PROJECT`, in
 `../../.env.integration`.
 
 ## Day to day

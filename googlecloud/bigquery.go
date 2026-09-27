@@ -155,6 +155,11 @@ func (c *BigQueryClient) run(ctx context.Context, projectID, sql string, params 
 	return schema, rows, affected, nil
 }
 
+// ProgressDatasetID is the dataset that holds project_creation_progress, in
+// every control project. It matches google_bigquery_dataset.app in
+// terraform/modules/progress_table.
+const ProgressDatasetID = "auto_provision"
+
 // ProjectCreationProgressRow is one row of project_creation_progress. Empty
 // ProjectID and ErrorMessage are written as NULL.
 type ProjectCreationProgressRow struct {

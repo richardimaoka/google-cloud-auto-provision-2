@@ -5,11 +5,9 @@ package googlecloud
 // These tests call the real BigQuery API and write to the real
 // project_creation_progress table (see ../terraform/integration). Each run adds one row
 // under a request ID of its own and deletes it at the end, even if the test
-// fails. The table is in the control project, GOOGLECLOUD_TEST_CONTROL_PROJECT.
-// It shares the environment of the other integration tests, see
-// groups_integration_test.go, plus:
-//
-//	GOOGLECLOUD_TEST_BIGQUERY_DATASET  dataset that holds project_creation_progress
+// fails. The table is in the ProgressDatasetID dataset of the control project,
+// GOOGLECLOUD_TEST_CONTROL_PROJECT. It shares the environment of the other
+// integration tests, see groups_integration_test.go.
 //
 //	(set -a; . ./.env.integration; set +a; go test -tags integration -count=1 -v ./googlecloud -run BigQuery)
 
@@ -40,7 +38,7 @@ func TestBigQueryClient_Progress_Integration(t *testing.T) {
 
 	// The control project both holds the table and is billed for the queries.
 	projectID := requireEnv(t, "GOOGLECLOUD_TEST_CONTROL_PROJECT")
-	datasetID := requireEnv(t, "GOOGLECLOUD_TEST_BIGQUERY_DATASET")
+	datasetID := ProgressDatasetID
 	client, err := NewBigQueryClient(ctx, option.WithQuotaProject(projectID))
 	if err != nil {
 		t.Fatalf("NewBigQueryClient: %v", err)
