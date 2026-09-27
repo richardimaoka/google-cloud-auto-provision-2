@@ -41,7 +41,9 @@ type InitiateProjectCreationResponse struct {
 type progressStore interface {
 	// Create returns an error, recording nothing, if progress.ID exists.
 	Create(ctx context.Context, progress domain.ProjectCreationProgress) (domain.ProjectCreationID, error)
-	Update(ctx context.Context, progress domain.ProjectCreationProgress) error
+	// Update replaces current with next. It returns an error, recording nothing,
+	// if the recorded progress is no longer at current's state and status.
+	Update(ctx context.Context, current, next domain.ProjectCreationProgress) error
 }
 
 // projectCreator creates a project and grants the automation service account access to it.
@@ -214,19 +216,19 @@ func (s *ProjectCreationService) createProject(ctx context.Context, id domain.Pr
 	return progress, projectID, nil
 }
 
-// addServiceAccountIAMBindings advances progress past creation with
+// addServiceAccountIAMBindings advances current past creation with
 // projectID, recording adding_service_account_iam_bindings, then grants
 // s.serviceAccount access to the project.
 // The access only needs to cover what the worker does next, not lasting
 // privileges (see spec.md §2.3).
-func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Context, progress domain.ProjectCreationProgress, projectID string, token oauth2.TokenSource) (domain.ProjectCreationProgress, error) {
+func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Context, current domain.ProjectCreationProgress, projectID string, token oauth2.TokenSource) (domain.ProjectCreationProgress, error) {
 	// adding_service_account_iam_bindingsとして記録する。
-	progress, err := progress.AdvancePastCreation(projectID)
+	next, err := current.AdvancePastCreation(projectID)
 	if err != nil {
-		// progress.AdvancePastCreation()はエラーを返すことはないはずだが、万一発生したらprogressStoreは前段階のin_progressのままになる
+		// current.AdvancePastCreation()はエラーを返すことはないはずだが、万一発生したらprogressStoreは前段階のin_progressのままになる
 		return domain.ProjectCreationProgress{}, err
 	}
-	if err := s.progressStore.Update(ctx, progress); err != nil {
+	if err := s.progressStore.Update(ctx, current, next); err != nil {
 		return domain.ProjectCreationProgress{}, fmt.Errorf("record project creation: %w", err)
 	}
 
@@ -236,41 +238,41 @@ func (s *ProjectCreationService) addServiceAccountIAMBindings(ctx context.Contex
 		// domain.NewIAMRole("roles/resourcemanager.projectIamAdmin")はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
 		return domain.ProjectCreationProgress{}, fmt.Errorf("invalid IAM role: %w", err)
 	}
-	if err := s.iamClient.AddBinding(ctx, token, progress.ProjectID(), domain.NewServiceAccountPrincipal(s.serviceAccount), projectIamAdminRole); err != nil {
-		return domain.ProjectCreationProgress{}, s.recordFailure(ctx, progress, fmt.Errorf("adding IAM binding for service account: %w", err))
+	if err := s.iamClient.AddBinding(ctx, token, next.ProjectID(), domain.NewServiceAccountPrincipal(s.serviceAccount), projectIamAdminRole); err != nil {
+		return domain.ProjectCreationProgress{}, s.recordFailure(ctx, next, fmt.Errorf("adding IAM binding for service account: %w", err))
 	}
-	return progress, nil
+	return next, nil
 }
 
-// startSetupJob advances progress to adding_iam_bindings, records it, and
+// startSetupJob advances current to adding_iam_bindings, records it, and
 // starts the Cloud Run job that does the rest of the setup.
-func (s *ProjectCreationService) startSetupJob(ctx context.Context, progress domain.ProjectCreationProgress) error {
+func (s *ProjectCreationService) startSetupJob(ctx context.Context, current domain.ProjectCreationProgress) error {
 	// adding_iam_bindingsとして記録する。
-	progress, err := progress.Advance()
+	next, err := current.Advance()
 	if err != nil {
-		// progress.Advance()はエラーを返すことはないはずだが、万一発生したらprogressStoreは前段階のin_progressのままになる
+		// current.Advance()はエラーを返すことはないはずだが、万一発生したらprogressStoreは前段階のin_progressのままになる
 		return err
 	}
-	if err := s.progressStore.Update(ctx, progress); err != nil {
+	if err := s.progressStore.Update(ctx, current, next); err != nil {
 		return fmt.Errorf("record project setup: %w", err)
 	}
 
 	// 残りの初期設定を行うCloud Run Jobs(worker.RunProjectCreation)を起動し、失敗したらerrorとして記録する。
-	if err := s.jobStarter.Start(ctx, progress.ID()); err != nil {
-		return s.recordFailure(ctx, progress, fmt.Errorf("start project setup job: %w", err))
+	if err := s.jobStarter.Start(ctx, next.ID()); err != nil {
+		return s.recordFailure(ctx, next, fmt.Errorf("start project setup job: %w", err))
 	}
 	return nil
 }
 
-// recordFailure records progress as failed and returns err, joined with any
+// recordFailure records current as failed and returns err, joined with any
 // error from recording it.
-func (s *ProjectCreationService) recordFailure(ctx context.Context, progress domain.ProjectCreationProgress, err error) error {
-	failed, failErr := progress.Fail()
+func (s *ProjectCreationService) recordFailure(ctx context.Context, current domain.ProjectCreationProgress, err error) error {
+	next, failErr := current.Fail()
 	if failErr != nil {
-		// progress.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
+		// current.Fail()はエラーを返すことはないはずだが、万一発生したらprogressStoreはin_progressのままになる
 		return errors.Join(err, failErr)
 	}
-	if updateErr := s.progressStore.Update(ctx, failed); updateErr != nil {
+	if updateErr := s.progressStore.Update(ctx, current, next); updateErr != nil {
 		return errors.Join(err, fmt.Errorf("record project creation failure: %w", updateErr))
 	}
 	return err

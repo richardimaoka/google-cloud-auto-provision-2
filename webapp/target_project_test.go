@@ -35,12 +35,17 @@ func (f *fakeProgressStore) Create(ctx context.Context, progress domain.ProjectC
 	return progress.ID(), nil
 }
 
-func (f *fakeProgressStore) Update(ctx context.Context, progress domain.ProjectCreationProgress) error {
+func (f *fakeProgressStore) Update(ctx context.Context, current, next domain.ProjectCreationProgress) error {
 	f.updates++
 	if f.err != nil {
 		return f.err
 	}
-	f.recorded[progress.ID()] = progress
+	// Like the real store, it only replaces the progress that current describes.
+	recorded, ok := f.recorded[next.ID()]
+	if !ok || recorded.State() != current.State() || recorded.Status() != current.Status() {
+		return fmt.Errorf("project creation %q is not at %s/%s", next.ID(), current.State(), current.Status())
+	}
+	f.recorded[next.ID()] = next
 	return nil
 }
 
