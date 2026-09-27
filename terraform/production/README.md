@@ -56,6 +56,12 @@ remote backend before anyone else works on this.
 `terraform destroy` will try to delete the project. If it can't, delete the
 project in the Cloud Console.
 
+## Integration test project
+
+The integration tests use their own control project, set up by
+`../integration` (see its README). It shares the BigQuery table definition,
+`../modules/progress_table`, with this configuration.
+
 ## Deploying the webapp
 
 `terraform apply` creates the Cloud Run service with a placeholder image

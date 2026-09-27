@@ -1,7 +1,7 @@
 # Setting up the OAuth client
 
 Terraform can't create an OAuth client for a regular web app, so this is done
-by hand in the Cloud Console, in the project that `terraform/` manages. The
+by hand in the Cloud Console, in the project that `terraform/production/` manages. The
 result is a `client_secret.json` file in `secrets/` under the repository
 root, holding the client ID, secret and redirect URI.
 

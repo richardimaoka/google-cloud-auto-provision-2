@@ -4,10 +4,10 @@
 webapp/testdata/token.json
 
 # Terraform
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.*
-terraform/terraform.tfvars
+terraform/*/.terraform/
+terraform/*/*.tfstate
+terraform/*/*.tfstate.*
+terraform/*/terraform.tfvars
 
 /secrets/
 

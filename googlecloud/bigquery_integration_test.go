@@ -3,7 +3,7 @@
 package googlecloud
 
 // These tests call the real BigQuery API and write to the real
-// project_creation_progress table (see ../terraform). Each run adds one row
+// project_creation_progress table (see ../terraform/integration). Each run adds one row
 // under a request ID of its own and deletes it at the end, even if the test
 // fails. The table is in the control project, GOOGLECLOUD_TEST_CONTROL_PROJECT.
 // It shares the environment of the other integration tests, see

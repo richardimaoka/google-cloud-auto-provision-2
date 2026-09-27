@@ -25,5 +25,5 @@ output "webapp_url" {
 
 output "bigquery_dataset" {
   description = "BigQuery dataset holding the app's tables."
-  value       = google_bigquery_dataset.app.dataset_id
+  value       = module.progress_table.dataset_id
 }

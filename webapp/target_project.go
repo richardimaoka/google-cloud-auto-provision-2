@@ -79,7 +79,7 @@ const (
 )
 
 // bigQueryDataset holds the project_creation_progress table. It matches
-// google_bigquery_dataset.app in terraform/main.tf.
+// google_bigquery_dataset.app in terraform/modules/progress_table.
 const bigQueryDataset = "auto_provision"
 
 // config is what ProjectCreationService needs besides its dependencies.
