@@ -32,7 +32,7 @@ variable "automation_sa_id" {
 }
 
 variable "region" {
-  description = "Region for the Artifact Registry repository and Cloud Run service."
+  description = "Region for the Artifact Registry repository, Cloud Run service and BigQuery dataset."
   type        = string
   default     = "asia-northeast1"
 }
