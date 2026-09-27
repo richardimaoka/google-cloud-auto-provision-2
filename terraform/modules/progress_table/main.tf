@@ -5,7 +5,7 @@
 # Holds the application's records.
 resource "google_bigquery_dataset" "app" {
   project = var.project_id
-  # googlecloud.ProgressDatasetID in Go; change both together.
+  # progressDatasetID in googlecloud/bigquery.go; change both together.
   dataset_id = "auto_provision"
   location   = var.location
 }

@@ -155,10 +155,10 @@ func (c *BigQueryClient) run(ctx context.Context, projectID, sql string, params 
 	return schema, rows, affected, nil
 }
 
-// ProgressDatasetID is the dataset that holds project_creation_progress, in
+// progressDatasetID is the dataset that holds project_creation_progress, in
 // every control project. It matches google_bigquery_dataset.app in
 // terraform/modules/progress_table.
-const ProgressDatasetID = "auto_provision"
+const progressDatasetID = "auto_provision"
 
 // ProjectCreationProgressRow is one row of project_creation_progress. Empty
 // ProjectID and ErrorMessage are written as NULL.
@@ -176,16 +176,16 @@ type ProjectCreationProgressRow struct {
 
 // CreateProgress inserts row, or returns ErrProgressExists if its request ID
 // is recorded. MERGE, unlike INSERT, is checked for concurrent conflicts.
-func (c *BigQueryClient) CreateProgress(ctx context.Context, projectID, datasetID string, row ProjectCreationProgressRow) error {
-	if !validBigQueryIdentifier(projectID) || !validBigQueryIdentifier(datasetID) {
-		return fmt.Errorf("create progress: invalid project or dataset ID")
+func (c *BigQueryClient) CreateProgress(ctx context.Context, projectID string, row ProjectCreationProgressRow) error {
+	if !validBigQueryIdentifier(projectID) {
+		return fmt.Errorf("create progress: invalid project ID %q", projectID)
 	}
 	sql := fmt.Sprintf("MERGE `%s.%s.project_creation_progress` T\n"+
 		"USING (SELECT @request_id AS request_id) S\n"+
 		"ON T.request_id = S.request_id\n"+
 		"WHEN NOT MATCHED THEN INSERT (request_id, revision, state, status, project_id, display_name, requester, developer_group, error_message, created_at, updated_at)\n"+
 		"VALUES (@request_id, @revision, @state, @status, NULLIF(@project_id, ''), @display_name, @requester, @developer_group, NULLIF(@error_message, ''), CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())",
-		projectID, datasetID)
+		projectID, progressDatasetID)
 	affected, err := c.exec(ctx, projectID, sql, progressParams(row))
 	if err != nil {
 		return fmt.Errorf("create progress: %w", err)
@@ -198,9 +198,9 @@ func (c *BigQueryClient) CreateProgress(ctx context.Context, projectID, datasetI
 
 // UpdateProgress replaces current with next, or returns ErrProgressChanged if
 // the row is no longer at current's state and status.
-func (c *BigQueryClient) UpdateProgress(ctx context.Context, projectID, datasetID string, current, next ProjectCreationProgressRow) error {
-	if !validBigQueryIdentifier(projectID) || !validBigQueryIdentifier(datasetID) {
-		return fmt.Errorf("update progress: invalid project or dataset ID")
+func (c *BigQueryClient) UpdateProgress(ctx context.Context, projectID string, current, next ProjectCreationProgressRow) error {
+	if !validBigQueryIdentifier(projectID) {
+		return fmt.Errorf("update progress: invalid project ID %q", projectID)
 	}
 	if current.RequestID != next.RequestID {
 		return fmt.Errorf("update progress: current request ID %q and next %q differ", current.RequestID, next.RequestID)
@@ -208,7 +208,7 @@ func (c *BigQueryClient) UpdateProgress(ctx context.Context, projectID, datasetI
 	sql := fmt.Sprintf("UPDATE `%s.%s.project_creation_progress`\n"+
 		"SET revision = @revision, state = @state, status = @status, project_id = NULLIF(@project_id, ''), display_name = @display_name, requester = @requester, developer_group = @developer_group, error_message = NULLIF(@error_message, ''), updated_at = CURRENT_TIMESTAMP()\n"+
 		"WHERE request_id = @request_id AND state = @current_state AND status = @current_status",
-		projectID, datasetID)
+		projectID, progressDatasetID)
 	params := append(progressParams(next), stringParam("current_state", current.State), stringParam("current_status", current.Status))
 	affected, err := c.exec(ctx, projectID, sql, params)
 	if err != nil {

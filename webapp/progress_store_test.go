@@ -47,7 +47,7 @@ func newTestProgressStore(t *testing.T, srv *httptest.Server) *bigQueryProgressS
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &bigQueryProgressStore{client: client, projectID: "my-project", datasetID: "my_dataset"}
+	return &bigQueryProgressStore{client: client, projectID: "my-project"}
 }
 
 func TestBigQueryProgressStore(t *testing.T) {

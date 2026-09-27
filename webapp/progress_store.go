@@ -12,18 +12,17 @@ import (
 type bigQueryProgressStore struct {
 	client    *googlecloud.BigQueryClient
 	projectID string
-	datasetID string
 }
 
 func (s *bigQueryProgressStore) Create(ctx context.Context, progress domain.ProjectCreationProgress) (domain.ProjectCreationID, error) {
-	if err := s.client.CreateProgress(ctx, s.projectID, s.datasetID, progressRow(progress)); err != nil {
+	if err := s.client.CreateProgress(ctx, s.projectID, progressRow(progress)); err != nil {
 		return "", err
 	}
 	return progress.ID(), nil
 }
 
 func (s *bigQueryProgressStore) Update(ctx context.Context, current, next domain.ProjectCreationProgress) error {
-	return s.client.UpdateProgress(ctx, s.projectID, s.datasetID, progressRow(current), progressRow(next))
+	return s.client.UpdateProgress(ctx, s.projectID, progressRow(current), progressRow(next))
 }
 
 // progressRow converts progress to a table row.

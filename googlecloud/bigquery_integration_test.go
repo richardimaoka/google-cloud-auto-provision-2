@@ -5,7 +5,7 @@ package googlecloud
 // These tests call the real BigQuery API and write to the real
 // project_creation_progress table (see ../terraform/integration). Each run adds one row
 // under a request ID of its own and deletes it at the end, even if the test
-// fails. The table is in the ProgressDatasetID dataset of the control project,
+// fails. The table is in the progressDatasetID dataset of the control project,
 // GOOGLECLOUD_TEST_CONTROL_PROJECT. It shares the environment of the other
 // integration tests, see groups_integration_test.go.
 //
@@ -38,7 +38,6 @@ func TestBigQueryClient_Progress_Integration(t *testing.T) {
 
 	// The control project both holds the table and is billed for the queries.
 	projectID := requireEnv(t, "GOOGLECLOUD_TEST_CONTROL_PROJECT")
-	datasetID := ProgressDatasetID
 	client, err := NewBigQueryClient(ctx, option.WithQuotaProject(projectID))
 	if err != nil {
 		t.Fatalf("NewBigQueryClient: %v", err)
@@ -60,17 +59,17 @@ func TestBigQueryClient_Progress_Integration(t *testing.T) {
 
 	t.Cleanup(func() {
 		// A fresh context: ctx may have ended by now.
-		if err := deleteProgress(context.Background(), client, projectID, datasetID, current.RequestID); err != nil {
+		if err := deleteProgress(context.Background(), client, projectID, current.RequestID); err != nil {
 			t.Errorf("clean up row %q: %v", current.RequestID, err)
 		}
 	})
 
-	if err := client.CreateProgress(ctx, projectID, datasetID, current); err != nil {
+	if err := client.CreateProgress(ctx, projectID, current); err != nil {
 		t.Fatalf("CreateProgress() = %v, want nil error", err)
 	}
 
 	t.Run("挿入した行を読み戻せ、空のproject_idとerror_messageはNULLになる", func(t *testing.T) {
-		got := readProgress(t, ctx, client, projectID, datasetID, current.RequestID)
+		got := readProgress(t, ctx, client, projectID, current.RequestID)
 		want := progressCells{state: current.State, status: current.Status, projectID: nil, errorMessage: nil, timestampsSet: true}
 		if got != want {
 			t.Errorf("row = %+v, want %+v", got, want)
@@ -80,19 +79,19 @@ func TestBigQueryClient_Progress_Integration(t *testing.T) {
 	t.Run("同じリクエストIDでもう一度作るとErrProgressExistsで、行は変わらない", func(t *testing.T) {
 		again := current
 		again.DisplayName = "Should Not Be Written"
-		if err := client.CreateProgress(ctx, projectID, datasetID, again); !errors.Is(err, ErrProgressExists) {
+		if err := client.CreateProgress(ctx, projectID, again); !errors.Is(err, ErrProgressExists) {
 			t.Errorf("CreateProgress(same ID) = %v, want ErrProgressExists", err)
 		}
-		if got := readProgress(t, ctx, client, projectID, datasetID, current.RequestID); got.state != current.State {
+		if got := readProgress(t, ctx, client, projectID, current.RequestID); got.state != current.State {
 			t.Errorf("state = %q after the second CreateProgress, want %q", got.state, current.State)
 		}
 	})
 
 	t.Run("currentの状態から、nextに更新できる", func(t *testing.T) {
-		if err := client.UpdateProgress(ctx, projectID, datasetID, current, next); err != nil {
+		if err := client.UpdateProgress(ctx, projectID, current, next); err != nil {
 			t.Fatalf("UpdateProgress() = %v, want nil error", err)
 		}
-		got := readProgress(t, ctx, client, projectID, datasetID, current.RequestID)
+		got := readProgress(t, ctx, client, projectID, current.RequestID)
 		if got.state != next.State || got.projectID == nil || *got.projectID != next.ProjectID {
 			t.Errorf("row = %+v, want state %q and project_id %q", got, next.State, next.ProjectID)
 		}
@@ -102,10 +101,10 @@ func TestBigQueryClient_Progress_Integration(t *testing.T) {
 		// The row is at next now, so another update from current is stale.
 		stale := next
 		stale.State = "adding_iam_bindings"
-		if err := client.UpdateProgress(ctx, projectID, datasetID, current, stale); !errors.Is(err, ErrProgressChanged) {
+		if err := client.UpdateProgress(ctx, projectID, current, stale); !errors.Is(err, ErrProgressChanged) {
 			t.Errorf("UpdateProgress(stale current) = %v, want ErrProgressChanged", err)
 		}
-		if got := readProgress(t, ctx, client, projectID, datasetID, current.RequestID); got.state != next.State {
+		if got := readProgress(t, ctx, client, projectID, current.RequestID); got.state != next.State {
 			t.Errorf("state = %q after the stale update, want %q", got.state, next.State)
 		}
 	})
@@ -120,10 +119,10 @@ type progressCells struct {
 
 // readProgress reads the row of requestID, failing the test unless there is
 // exactly one.
-func readProgress(t *testing.T, ctx context.Context, c *BigQueryClient, projectID, datasetID, requestID string) progressCells {
+func readProgress(t *testing.T, ctx context.Context, c *BigQueryClient, projectID, requestID string) progressCells {
 	t.Helper()
 	sql := fmt.Sprintf("SELECT state, status, project_id, error_message, created_at IS NOT NULL AND updated_at IS NOT NULL "+
-		"FROM `%s.%s.project_creation_progress` WHERE request_id = @request_id", projectID, datasetID)
+		"FROM `%s.%s.project_creation_progress` WHERE request_id = @request_id", projectID, progressDatasetID)
 	_, rows, err := c.query(ctx, projectID, sql, []*bigquery.QueryParameter{stringParam("request_id", requestID)})
 	if err != nil {
 		t.Fatalf("read row %q: %v", requestID, err)
@@ -150,8 +149,8 @@ func readProgress(t *testing.T, ctx context.Context, c *BigQueryClient, projectI
 }
 
 // deleteProgress removes the row of requestID. Only tests delete rows.
-func deleteProgress(ctx context.Context, c *BigQueryClient, projectID, datasetID, requestID string) error {
-	sql := fmt.Sprintf("DELETE FROM `%s.%s.project_creation_progress` WHERE request_id = @request_id", projectID, datasetID)
+func deleteProgress(ctx context.Context, c *BigQueryClient, projectID, requestID string) error {
+	sql := fmt.Sprintf("DELETE FROM `%s.%s.project_creation_progress` WHERE request_id = @request_id", projectID, progressDatasetID)
 	_, err := c.exec(ctx, projectID, sql, []*bigquery.QueryParameter{stringParam("request_id", requestID)})
 	return err
 }

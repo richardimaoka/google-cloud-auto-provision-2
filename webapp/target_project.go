@@ -83,7 +83,7 @@ type config struct {
 	Organization   domain.Organization
 	BreakGlass     domain.BreakGlassRequirement
 	ServiceAccount domain.Email
-	// BigQueryProject holds the googlecloud.ProgressDatasetID dataset.
+	// BigQueryProject holds the project_creation_progress table.
 	BigQueryProject string
 }
 
@@ -112,7 +112,7 @@ func NewProjectCreationService(ctx context.Context) (*ProjectCreationService, er
 	if err != nil {
 		return nil, err
 	}
-	store := &bigQueryProgressStore{client: bigQuery, projectID: cfg.BigQueryProject, datasetID: googlecloud.ProgressDatasetID}
+	store := &bigQueryProgressStore{client: bigQuery, projectID: cfg.BigQueryProject}
 	// TODO: build jobStarter once it exists.
 	return newProjectCreationService(cfg, store, &resourceManagerProjects{}, &cloudIdentityGroups{}, nil, &resourceManagerIAM{}), nil
 }

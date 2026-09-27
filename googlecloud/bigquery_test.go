@@ -549,14 +549,14 @@ func TestBigQueryClient_CreateProgress(t *testing.T) {
 		bodies := make(chan map[string]any, 1)
 		srv := newFakeBigQueryJobsServer(t, recordDML(job, 1, bodies), nil)
 
-		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", "my_dataset", testProgressRow()); err != nil {
+		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", testProgressRow()); err != nil {
 			t.Fatalf("CreateProgress() = %v, want nil error", err)
 		}
 		body := <-bodies
 		sql, _ := body["query"].(string)
 		// MERGE, not INSERT: BigQuery checks concurrent MERGEs for conflicts.
-		if !strings.HasPrefix(sql, "MERGE `my-project.my_dataset.project_creation_progress`") {
-			t.Errorf("query = %q, want a MERGE into my-project.my_dataset.project_creation_progress", sql)
+		if !strings.HasPrefix(sql, "MERGE `my-project.auto_provision.project_creation_progress`") {
+			t.Errorf("query = %q, want a MERGE into my-project.auto_provision.project_creation_progress", sql)
 		}
 		if strings.Contains(sql, "request-1") || strings.Contains(sql, "Example Project") {
 			t.Errorf("query = %q, want the values sent as parameters, not in the SQL", sql)
@@ -582,7 +582,7 @@ func TestBigQueryClient_CreateProgress(t *testing.T) {
 			respondJSON(w, &bigquery.GetQueryResultsResponse{JobComplete: true, JobReference: job, NumDmlAffectedRows: 1})
 		})
 
-		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", "my_dataset", testProgressRow()); err != nil {
+		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", testProgressRow()); err != nil {
 			t.Errorf("CreateProgress(slow job) = %v, want nil error", err)
 		}
 	})
@@ -591,17 +591,17 @@ func TestBigQueryClient_CreateProgress(t *testing.T) {
 		bodies := make(chan map[string]any, 1)
 		srv := newFakeBigQueryJobsServer(t, recordDML(job, 0, bodies), nil)
 
-		err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", "my_dataset", testProgressRow())
+		err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", testProgressRow())
 		if !errors.Is(err, ErrProgressExists) {
 			t.Errorf("CreateProgress(recorded ID) = %v, want ErrProgressExists", err)
 		}
 	})
 
-	t.Run("不正なデータセットIDは、ジョブを送らずに拒否する", func(t *testing.T) {
+	t.Run("不正なプロジェクトIDは、ジョブを送らずに拒否する", func(t *testing.T) {
 		srv := newFakeBigQueryJobsServer(t, nil, nil)
 
-		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", "my_dataset`; DROP TABLE x; --", testProgressRow()); err == nil {
-			t.Error("CreateProgress(invalid dataset ID) = nil error, want an error")
+		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project`; DROP TABLE x; --", testProgressRow()); err == nil {
+			t.Error("CreateProgress(invalid project ID) = nil error, want an error")
 		}
 	})
 
@@ -610,7 +610,7 @@ func TestBigQueryClient_CreateProgress(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		}, nil)
 
-		err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", "my_dataset", testProgressRow())
+		err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", testProgressRow())
 		var gerr *googleapi.Error
 		if !errors.As(err, &gerr) || gerr.Code != http.StatusNotFound {
 			t.Errorf("CreateProgress() = %v, want a wrapped 404", err)
@@ -629,13 +629,13 @@ func TestBigQueryClient_UpdateProgress(t *testing.T) {
 		bodies := make(chan map[string]any, 1)
 		srv := newFakeBigQueryJobsServer(t, recordDML(job, 1, bodies), nil)
 
-		if err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", "my_dataset", current, next); err != nil {
+		if err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", current, next); err != nil {
 			t.Fatalf("UpdateProgress() = %v, want nil error", err)
 		}
 		body := <-bodies
 		sql, _ := body["query"].(string)
-		if !strings.HasPrefix(sql, "UPDATE `my-project.my_dataset.project_creation_progress`") {
-			t.Errorf("query = %q, want an UPDATE of my-project.my_dataset.project_creation_progress", sql)
+		if !strings.HasPrefix(sql, "UPDATE `my-project.auto_provision.project_creation_progress`") {
+			t.Errorf("query = %q, want an UPDATE of my-project.auto_provision.project_creation_progress", sql)
 		}
 		// The WHERE must compare with current, or a concurrent change would be overwritten.
 		if !strings.Contains(sql, "state = @current_state AND status = @current_status") {
@@ -654,7 +654,7 @@ func TestBigQueryClient_UpdateProgress(t *testing.T) {
 		bodies := make(chan map[string]any, 1)
 		srv := newFakeBigQueryJobsServer(t, recordDML(job, 0, bodies), nil)
 
-		err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", "my_dataset", current, next)
+		err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", current, next)
 		if !errors.Is(err, ErrProgressChanged) {
 			t.Errorf("UpdateProgress(row moved on) = %v, want ErrProgressChanged", err)
 		}
@@ -665,7 +665,7 @@ func TestBigQueryClient_UpdateProgress(t *testing.T) {
 		other := next
 		other.RequestID = "request-2"
 
-		if err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", "my_dataset", current, other); err == nil {
+		if err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", current, other); err == nil {
 			t.Error("UpdateProgress(different request IDs) = nil error, want an error")
 		}
 	})
