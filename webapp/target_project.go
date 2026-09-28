@@ -63,6 +63,15 @@ type jobStarter interface {
 	Start(ctx context.Context, id domain.ProjectCreationID) error
 }
 
+// noOpJobStarter is the temporary handoff used until the Cloud Run job
+// launcher is implemented. It lets the webapp demonstrate the implemented
+// request, project-creation, and service-account-binding steps without
+// claiming that the remaining setup has run. The recorded progress stays at
+// adding_iam_bindings/in_progress.
+type noOpJobStarter struct{}
+
+func (noOpJobStarter) Start(context.Context, domain.ProjectCreationID) error { return nil }
+
 // iamClient changes a project's IAM bindings, acting as the user who owns token.
 type iamClient interface {
 	AddBinding(ctx context.Context, token oauth2.TokenSource, projectID string, principal domain.Principal, role domain.IAMRole) error
@@ -113,8 +122,8 @@ func NewProjectCreationService(ctx context.Context) (*ProjectCreationService, er
 		return nil, err
 	}
 	store := &bigQueryProgressStore{client: bigQuery, projectID: cfg.BigQueryProject}
-	// TODO: build jobStarter once it exists.
-	return newProjectCreationService(cfg, store, &resourceManagerProjects{}, &cloudIdentityGroups{}, nil, &resourceManagerIAM{}), nil
+	// TODO: replace noOpJobStarter with the Cloud Run job launcher.
+	return newProjectCreationService(cfg, store, &resourceManagerProjects{}, &cloudIdentityGroups{}, noOpJobStarter{}, &resourceManagerIAM{}), nil
 }
 
 // configFromEnvironment reads config from the environment.
