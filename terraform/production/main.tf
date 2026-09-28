@@ -25,6 +25,9 @@ resource "google_project" "this" {
   billing_account = var.billing_account
   org_id          = local.org_id
   folder_id       = local.folder_id
+
+  # The provider's default, spelled out: terraform destroy never deletes the project.
+  deletion_policy = "PREVENT"
 }
 
 resource "google_project_service" "apis" {
@@ -150,43 +153,32 @@ resource "google_iap_web_cloud_run_service_iam_member" "domain_access" {
   depends_on = [google_project_service.apis]
 }
 
-# Holds the application's records. The webapp and worker read and write it as
-# the automation service account.
-resource "google_bigquery_dataset" "app" {
-  project    = google_project.this.project_id
-  dataset_id = "auto_provision"
+# The auto_provision dataset and project_creation_progress table. The webapp
+# and worker read and write them as the automation service account.
+module "progress_table" {
+  source     = "../modules/progress_table"
+  project_id = google_project.this.project_id
   location   = var.region
 
   depends_on = [google_project_service.apis]
 }
 
-# The current progress of each project creation request: one row per
-# request_id, updated in place as the request moves through its states.
-# BigQuery doesn't enforce keys, so the app keeps request_id unique itself.
-resource "google_bigquery_table" "project_creation_progress" {
-  project    = google_project.this.project_id
-  dataset_id = google_bigquery_dataset.app.dataset_id
-  table_id   = "project_creation_progress"
+# The dataset and table used to be defined here. These keep them in place
+# instead of destroying and recreating them.
+moved {
+  from = google_bigquery_dataset.app
+  to   = module.progress_table.google_bigquery_dataset.app
+}
 
-  schema = jsonencode([
-    { name = "request_id", type = "STRING", mode = "REQUIRED", description = "Caller-issued ID of the request." },
-    { name = "revision", type = "INT64", mode = "REQUIRED", description = "Goes up when a failed request is amended." },
-    { name = "state", type = "STRING", mode = "REQUIRED", description = "Current step, like creating_project." },
-    { name = "status", type = "STRING", mode = "REQUIRED", description = "in_progress, error or success." },
-    { name = "project_id", type = "STRING", mode = "NULLABLE", description = "Created project's ID. NULL while creating_project." },
-    { name = "display_name", type = "STRING", mode = "REQUIRED", description = "Requested display name." },
-    { name = "requester", type = "STRING", mode = "REQUIRED", description = "Requester's email." },
-    { name = "developer_group", type = "STRING", mode = "REQUIRED", description = "Developer group's email." },
-    { name = "error_message", type = "STRING", mode = "NULLABLE", description = "Why the current step failed, when status is error." },
-    { name = "created_at", type = "TIMESTAMP", mode = "REQUIRED", description = "When the request was recorded." },
-    { name = "updated_at", type = "TIMESTAMP", mode = "REQUIRED", description = "When the row last changed." },
-  ])
+moved {
+  from = google_bigquery_table.project_creation_progress
+  to   = module.progress_table.google_bigquery_table.project_creation_progress
 }
 
 # Lets the automation service account read and write the app's tables...
 resource "google_bigquery_dataset_iam_member" "app_editor" {
   project    = google_project.this.project_id
-  dataset_id = google_bigquery_dataset.app.dataset_id
+  dataset_id = module.progress_table.dataset_id
   role       = "roles/bigquery.dataEditor"
   member     = "serviceAccount:${google_service_account.automation.email}"
 }

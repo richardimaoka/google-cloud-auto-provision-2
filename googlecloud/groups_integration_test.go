@@ -13,11 +13,11 @@ package googlecloud
 //	(set -a; . ./.env.integration; set +a; go test -tags integration ./googlecloud)
 //
 // Credentials come from Application Default Credentials. The tests refuse to
-// run unless the project recorded in ADC matches GOOGLECLOUD_TEST_QUOTA_PROJECT, so a
+// run unless the project recorded in ADC matches GOOGLECLOUD_TEST_CONTROL_PROJECT, so a
 // stale ADC project can't be used by accident. Each test also fails when the
 // environment variable naming its fixture is unset:
 //
-//	GOOGLECLOUD_TEST_QUOTA_PROJECT      quota project; must match the ADC project
+//	GOOGLECLOUD_TEST_CONTROL_PROJECT    control project, used as the quota project; must match the ADC project
 //	GOOGLECLOUD_TEST_DOMAIN             domain that owns the fixture groups
 //	GOOGLECLOUD_TEST_GROUP_EMPTY        group with no members
 //	GOOGLECLOUD_TEST_GROUP_MIXED_ROLES  group with at least one OWNER and one MEMBER
@@ -49,12 +49,12 @@ func TestMain(m *testing.M) {
 }
 
 // checkADCProject fails unless the project ADC points at is the one named by
-// GOOGLECLOUD_TEST_QUOTA_PROJECT. User credentials record it as quota_project_id and
+// GOOGLECLOUD_TEST_CONTROL_PROJECT. User credentials record it as quota_project_id and
 // service account keys as project_id.
 func checkADCProject(ctx context.Context) error {
-	want := os.Getenv("GOOGLECLOUD_TEST_QUOTA_PROJECT")
+	want := os.Getenv("GOOGLECLOUD_TEST_CONTROL_PROJECT")
 	if want == "" {
-		return errors.New("GOOGLECLOUD_TEST_QUOTA_PROJECT is not set")
+		return errors.New("GOOGLECLOUD_TEST_CONTROL_PROJECT is not set")
 	}
 
 	creds, err := google.FindDefaultCredentials(ctx, cloudidentity.CloudPlatformScope)
@@ -74,7 +74,7 @@ func checkADCProject(ctx context.Context) error {
 
 	got := cmp.Or(adc.QuotaProjectID, adc.ProjectID, creds.ProjectID)
 	if got != want {
-		return fmt.Errorf("ADC project is %q but GOOGLECLOUD_TEST_QUOTA_PROJECT is %q; "+
+		return fmt.Errorf("ADC project is %q but GOOGLECLOUD_TEST_CONTROL_PROJECT is %q; "+
 			"run `gcloud auth application-default set-quota-project %s` or fix the env file", got, want, want)
 	}
 	return nil
@@ -92,8 +92,8 @@ func requireEnv(t *testing.T, key string) string {
 func newIntegrationClient(t *testing.T) *GroupsClient {
 	t.Helper()
 
-	quotaProject := requireEnv(t, "GOOGLECLOUD_TEST_QUOTA_PROJECT")
-	client, err := NewGroupsClient(context.Background(), option.WithQuotaProject(quotaProject))
+	controlProject := requireEnv(t, "GOOGLECLOUD_TEST_CONTROL_PROJECT")
+	client, err := NewGroupsClient(context.Background(), option.WithQuotaProject(controlProject))
 	if err != nil {
 		t.Fatalf("NewGroupsClient: %v", err)
 	}

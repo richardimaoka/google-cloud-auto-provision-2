@@ -495,122 +495,178 @@ func TestBigQueryClient_query(t *testing.T) {
 	})
 }
 
-func TestBigQueryClient_Query(t *testing.T) {
-	t.Run("TIMESTAMP を time.Time に変換する", func(t *testing.T) {
-		job := &bigquery.JobReference{ProjectId: "my-project", JobId: "job1", Location: "US"}
-		srv := newFakeBigQueryJobsServer(t, func(w http.ResponseWriter, r *http.Request) {
-			respondJSON(w, &bigquery.QueryResponse{
-				JobComplete:  true,
-				JobReference: job,
-				Rows: []*bigquery.TableRow{{
-					F: []*bigquery.TableCell{
-						{V: "request-1"},
-						{V: "Example Project"},
-						{V: "1700000000.25"},
-					},
-				}},
-			})
-		}, nil)
-		client := newTestBigQueryClient(t, srv)
-
-		got, err := client.Query(context.Background(), "my-project", "my_dataset")
-		if err != nil {
-			t.Fatalf("Query() = %v, want nil error", err)
-		}
-		want := []ProjectCreationRecord{{ID: "request-1", DisplayName: "Example Project", CreatedAt: time.Unix(1700000000, 250000000).UTC()}}
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("Query() = %+v, want %+v", got, want)
-		}
+func TestSchemaMatchesTerraform(t *testing.T) {
+	t.Run("Terraform の project_creation_progress テーブル定義と Go の ProjectCreationProgressRow が一致する", func(t *testing.T) {
+		// Terraform のテーブル定義をパースして、ProjectCreationProgressRow と
+		// CreateProgress・UpdateProgress が書く列の名前、型、NULL 可否と照合する。
+		t.Skip("not implemented")
 	})
-	t.Run("固定された project_creation_records の列だけを問い合わせる", func(t *testing.T) {
-		job := &bigquery.JobReference{ProjectId: "my-project", JobId: "job1", Location: "US"}
+}
+
+// recordDML answers every query with a finished job that changed affected
+// rows, and sends each request body to bodies.
+func recordDML(job *bigquery.JobReference, affected int64, bodies chan<- map[string]any) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		bodies <- body
+		respondJSON(w, &bigquery.QueryResponse{JobComplete: true, JobReference: job, NumDmlAffectedRows: affected})
+	}
+}
+
+// sentParams returns the named parameters of a query request body as name to value.
+func sentParams(t *testing.T, body map[string]any) map[string]any {
+	t.Helper()
+	if got := body["parameterMode"]; got != "NAMED" {
+		t.Errorf("parameterMode = %v, want NAMED", got)
+	}
+	params := map[string]any{}
+	list, _ := body["queryParameters"].([]any)
+	for _, p := range list {
+		p, _ := p.(map[string]any)
+		value, _ := p["parameterValue"].(map[string]any)
+		params[p["name"].(string)] = value["value"]
+	}
+	return params
+}
+
+func testProgressRow() ProjectCreationProgressRow {
+	return ProjectCreationProgressRow{
+		RequestID:      "request-1",
+		Revision:       1,
+		State:          "creating_project",
+		Status:         "in_progress",
+		DisplayName:    "Example Project",
+		Requester:      "requester@example.com",
+		DeveloperGroup: "developer-group@example.com",
+	}
+}
+
+func TestBigQueryClient_CreateProgress(t *testing.T) {
+	job := &bigquery.JobReference{ProjectId: "my-project", JobId: "job1", Location: "US"}
+
+	t.Run("MERGEで、値をクエリパラメータとして送って1行挿入する", func(t *testing.T) {
 		bodies := make(chan map[string]any, 1)
-		srv := newFakeBigQueryJobsServer(t, func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
-			bodies <- body
-			respondJSON(w, &bigquery.QueryResponse{JobComplete: true, JobReference: job})
-		}, nil)
-		client := newTestBigQueryClient(t, srv)
+		srv := newFakeBigQueryJobsServer(t, recordDML(job, 1, bodies), nil)
 
-		if _, err := client.Query(context.Background(), "my-project", "my_dataset"); err != nil {
-			t.Fatalf("Query() = %v, want nil error", err)
+		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", testProgressRow()); err != nil {
+			t.Fatalf("CreateProgress() = %v, want nil error", err)
 		}
-		if got := (<-bodies)["query"]; got != "SELECT request_id, display_name, created_at FROM `my-project.my_dataset.project_creation_records`" {
-			t.Errorf("query = %q, want fixed project_creation_records query", got)
+		body := <-bodies
+		sql, _ := body["query"].(string)
+		// MERGE, not INSERT: BigQuery checks concurrent MERGEs for conflicts.
+		if !strings.HasPrefix(sql, "MERGE `my-project.auto_provision.project_creation_progress`") {
+			t.Errorf("query = %q, want a MERGE into my-project.auto_provision.project_creation_progress", sql)
+		}
+		if strings.Contains(sql, "request-1") || strings.Contains(sql, "Example Project") {
+			t.Errorf("query = %q, want the values sent as parameters, not in the SQL", sql)
+		}
+		params := sentParams(t, body)
+		want := map[string]any{
+			"request_id": "request-1", "revision": "1", "state": "creating_project", "status": "in_progress",
+			"project_id": "", "display_name": "Example Project", "requester": "requester@example.com",
+			"developer_group": "developer-group@example.com", "error_message": "",
+		}
+		if !reflect.DeepEqual(params, want) {
+			t.Errorf("parameters = %v, want %v", params, want)
 		}
 	})
-	t.Run("SQL の文法エラーは、原因が分かるエラーを返す", func(t *testing.T) {
+
+	t.Run("ジョブが最初の応答で終わらなくても、結果の変更行数で判定する", func(t *testing.T) {
+		// The first response has no count yet. Only the finished results say 1
+		// row was inserted, so reading the first response's 0 would wrongly
+		// report ErrProgressExists.
 		srv := newFakeBigQueryJobsServer(t, func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusBadRequest)
-			respondJSON(w, map[string]any{"error": map[string]any{"code": 400, "message": "Syntax error"}})
-		}, nil)
-		_, err := newTestBigQueryClient(t, srv).Query(context.Background(), "my-project", "my_dataset")
-		if err == nil || !strings.Contains(err.Error(), "Syntax error") {
-			t.Errorf("Query() error = %v, want syntax error", err)
+			respondJSON(w, &bigquery.QueryResponse{JobComplete: false, JobReference: job})
+		}, func(w http.ResponseWriter, r *http.Request) {
+			respondJSON(w, &bigquery.GetQueryResultsResponse{JobComplete: true, JobReference: job, NumDmlAffectedRows: 1})
+		})
+
+		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", testProgressRow()); err != nil {
+			t.Errorf("CreateProgress(slow job) = %v, want nil error", err)
 		}
 	})
+
+	t.Run("変更された行が0ならErrProgressExistsを返す", func(t *testing.T) {
+		bodies := make(chan map[string]any, 1)
+		srv := newFakeBigQueryJobsServer(t, recordDML(job, 0, bodies), nil)
+
+		err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", testProgressRow())
+		if !errors.Is(err, ErrProgressExists) {
+			t.Errorf("CreateProgress(recorded ID) = %v, want ErrProgressExists", err)
+		}
+	})
+
+	t.Run("不正なプロジェクトIDは、ジョブを送らずに拒否する", func(t *testing.T) {
+		srv := newFakeBigQueryJobsServer(t, nil, nil)
+
+		if err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project`; DROP TABLE x; --", testProgressRow()); err == nil {
+			t.Error("CreateProgress(invalid project ID) = nil error, want an error")
+		}
+	})
+
 	t.Run("存在しないテーブルはエラーを返す", func(t *testing.T) {
 		srv := newFakeBigQueryJobsServer(t, func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		}, nil)
-		_, err := newTestBigQueryClient(t, srv).Query(context.Background(), "my-project", "my_dataset")
+
+		err := newTestBigQueryClient(t, srv).CreateProgress(context.Background(), "my-project", testProgressRow())
 		var gerr *googleapi.Error
 		if !errors.As(err, &gerr) || gerr.Code != http.StatusNotFound {
-			t.Errorf("Query() error = %v, want wrapped 404", err)
+			t.Errorf("CreateProgress() = %v, want a wrapped 404", err)
 		}
 	})
 }
 
-func TestSchemaMatchesTerraform(t *testing.T) {
-	t.Run("Terraform の project_creation_records テーブル定義と Go の ProjectCreationRecord が一致する", func(t *testing.T) {
-		// Terraform の BigQuery テーブル定義ができたら、それをパースして
-		// ProjectCreationRecord の列名、型、NULL 可否と照合する。
-		t.Skip("not implemented")
-	})
-}
+func TestBigQueryClient_UpdateProgress(t *testing.T) {
+	job := &bigquery.JobReference{ProjectId: "my-project", JobId: "job1", Location: "US"}
+	current := testProgressRow()
+	next := current
+	next.State = "adding_service_account_iam_bindings"
+	next.ProjectID = "example-project"
 
-func TestBigQueryClient_Insert(t *testing.T) {
-	t.Run("1行を追記する", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("複数行を追記する", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("行が0件なら、ジョブを送らずに成功する", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("文字列などの値を SQL 文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("不正な文字を含むテーブル名または列名は、ジョブを送らずに拒否する", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("存在しないテーブルはエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-}
+	t.Run("currentの状態のときだけ、nextの値で更新する", func(t *testing.T) {
+		bodies := make(chan map[string]any, 1)
+		srv := newFakeBigQueryJobsServer(t, recordDML(job, 1, bodies), nil)
 
-func TestBigQueryClient_Upsert(t *testing.T) {
-	t.Run("キーが同じ行がなければ、新しい行を挿入する", func(t *testing.T) {
-		t.Skip("not implemented")
+		if err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", current, next); err != nil {
+			t.Fatalf("UpdateProgress() = %v, want nil error", err)
+		}
+		body := <-bodies
+		sql, _ := body["query"].(string)
+		if !strings.HasPrefix(sql, "UPDATE `my-project.auto_provision.project_creation_progress`") {
+			t.Errorf("query = %q, want an UPDATE of my-project.auto_provision.project_creation_progress", sql)
+		}
+		// The WHERE must compare with current, or a concurrent change would be overwritten.
+		if !strings.Contains(sql, "state = @current_state AND status = @current_status") {
+			t.Errorf("query = %q, want it to require the current state and status", sql)
+		}
+		params := sentParams(t, body)
+		if params["state"] != next.State || params["project_id"] != next.ProjectID {
+			t.Errorf("parameters state/project_id = %v/%v, want next's %q/%q", params["state"], params["project_id"], next.State, next.ProjectID)
+		}
+		if params["current_state"] != current.State || params["current_status"] != current.Status {
+			t.Errorf("parameters current_state/current_status = %v/%v, want %q/%q", params["current_state"], params["current_status"], current.State, current.Status)
+		}
 	})
-	t.Run("キーが同じ行があれば、入力行の値で更新する", func(t *testing.T) {
-		t.Skip("not implemented")
+
+	t.Run("変更された行が0ならErrProgressChangedを返す", func(t *testing.T) {
+		bodies := make(chan map[string]any, 1)
+		srv := newFakeBigQueryJobsServer(t, recordDML(job, 0, bodies), nil)
+
+		err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", current, next)
+		if !errors.Is(err, ErrProgressChanged) {
+			t.Errorf("UpdateProgress(row moved on) = %v, want ErrProgressChanged", err)
+		}
 	})
-	t.Run("複数行の挿入と更新を、一つのジョブで行う", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("行が0件なら、ジョブを送らずに成功する", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("文字列などの値を SQL 文字列に埋め込まず、クエリパラメータとして送る", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("不正な文字を含むテーブル名または列名は、ジョブを送らずに拒否する", func(t *testing.T) {
-		t.Skip("not implemented")
-	})
-	t.Run("存在しないテーブルはエラーを返す", func(t *testing.T) {
-		t.Skip("not implemented")
+
+	t.Run("currentとnextのリクエストIDが違えば、ジョブを送らずに拒否する", func(t *testing.T) {
+		srv := newFakeBigQueryJobsServer(t, nil, nil)
+		other := next
+		other.RequestID = "request-2"
+
+		if err := newTestBigQueryClient(t, srv).UpdateProgress(context.Background(), "my-project", current, other); err == nil {
+			t.Error("UpdateProgress(different request IDs) = nil error, want an error")
+		}
 	})
 }

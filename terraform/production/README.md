@@ -53,8 +53,17 @@ remote backend before anyone else works on this.
 `GOOGLE_CLOUD_PROJECT_ID` in `.env`. Afterwards, point ADC at the project with
 `gcloud auth application-default set-quota-project <project_id>`.
 
-`terraform destroy` will try to delete the project. If it can't, delete the
-project in the Cloud Console.
+Change the project's name, billing account or parent only here, never in the
+Cloud Console: the next apply would change it back.
+
+`terraform destroy` never deletes the project (`deletion_policy = "PREVENT"`).
+To delete it, do it in the Cloud Console.
+
+## Integration test project
+
+The integration tests use their own control project, set up by
+`../integration` (see its README). It shares the BigQuery table definition,
+`../modules/progress_table`, with this configuration.
 
 ## Deploying the webapp
 

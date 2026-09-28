@@ -35,12 +35,17 @@ func (f *fakeProgressStore) Create(ctx context.Context, progress domain.ProjectC
 	return progress.ID(), nil
 }
 
-func (f *fakeProgressStore) Update(ctx context.Context, progress domain.ProjectCreationProgress) error {
+func (f *fakeProgressStore) Update(ctx context.Context, current, next domain.ProjectCreationProgress) error {
 	f.updates++
 	if f.err != nil {
 		return f.err
 	}
-	f.recorded[progress.ID()] = progress
+	// Like the real store, it only replaces the progress that current describes.
+	recorded, ok := f.recorded[next.ID()]
+	if !ok || recorded.State() != current.State() || recorded.Status() != current.Status() {
+		return fmt.Errorf("project creation %q is not at %s/%s", next.ID(), current.State(), current.Status())
+	}
+	f.recorded[next.ID()] = next
 	return nil
 }
 
@@ -149,7 +154,12 @@ func testConfig(t *testing.T) config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return config{Organization: organization, BreakGlass: breakGlass, ServiceAccount: serviceAccount}
+	return config{
+		Organization:    organization,
+		BreakGlass:      breakGlass,
+		ServiceAccount:  serviceAccount,
+		BigQueryProject: "my-project",
+	}
 }
 
 // testProgress returns a valid ProjectCreationProgress at StateCreatingProject.
@@ -446,6 +456,7 @@ func TestConfigFromEnvironment(t *testing.T) {
 		t.Setenv(domain.BreakGlassUltimateGroupEmailEnv, "break-glass-ultimate@example.com")
 		t.Setenv(domain.BreakGlassEmergencyGroupEmailEnv, "break-glass-emergency@example.com")
 		t.Setenv(serviceAccountEnv, "automation@example-project.iam.gserviceaccount.com")
+		t.Setenv(googleCloudProjectEnv, "my-project")
 	}
 
 	t.Run("環境変数からconfigを読み込む", func(t *testing.T) {
@@ -463,9 +474,12 @@ func TestConfigFromEnvironment(t *testing.T) {
 		if got := cfg.ServiceAccount.String(); got != "automation@example-project.iam.gserviceaccount.com" {
 			t.Errorf("ServiceAccount = %q, want %q", got, "automation@example-project.iam.gserviceaccount.com")
 		}
+		if cfg.BigQueryProject != "my-project" {
+			t.Errorf("BigQueryProject = %q, want %q", cfg.BigQueryProject, "my-project")
+		}
 	})
 
-	for _, name := range []string{organizationIDEnv, organizationDomainEnv, domain.BreakGlassUltimateGroupEmailEnv, serviceAccountEnv} {
+	for _, name := range []string{organizationIDEnv, organizationDomainEnv, domain.BreakGlassUltimateGroupEmailEnv, serviceAccountEnv, googleCloudProjectEnv} {
 		t.Run(name+"が空だとエラー", func(t *testing.T) {
 			setEnv(t)
 			t.Setenv(name, "")

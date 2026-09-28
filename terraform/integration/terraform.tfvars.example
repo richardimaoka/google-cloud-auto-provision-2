@@ -1,0 +1,6 @@
+project_id      = "your-integration-control-project-id"
+billing_account = "012345-6789AB-CDEF01"
+parent          = "organizations/123456789" # or "folders/123456789"; must match how the project was created
+
+# project_name = "Auto Provision Integration"
+# region       = "asia-northeast1"
